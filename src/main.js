@@ -1,5 +1,8 @@
 
 import * as THREE from 'three';
+import { buildVillage } from './world/village.js';
+import { buildColliders, movePlayer, createMoveResult } from './player/collisions.js';
+import { BUILDINGS, WALLS, PROPS } from './world/layout.js';
 
 // -----------------------------------------------------
 // 1. CONFIGURACIÓ (valors que pots retocar fàcilment)
@@ -9,6 +12,7 @@ const WALK_SPEED = 4.0;        // Velocitat de caminar (metres per segon)
 const ACCELERATION = 10.0;     // Com de ràpid s'arriba a la velocitat màxima (més alt = més àgil)
 const MOUSE_SENSITIVITY = 0.002; // Sensibilitat del ratolí
 const MAP_LIMIT = 95;          // Límit del terra (el terra fa 200x200, de -100 a 100)
+const PLAYER_RADIUS = 0.35;    // Radi de col·lisió del jugador (cercle en el pla XZ)
 
 // -----------------------------------------------------
 // 2. RENDERER (el que dibuixa l'escena a la pantalla)
@@ -43,7 +47,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,                                   // Distància mínima de dibuix
   100                                    // Distància màxima de dibuix
 );
-camera.position.set(0, EYE_HEIGHT, 5);   // Comencem a 5 m del centre
+camera.position.set(0, EYE_HEIGHT, 27);  // Comencem a l'entrada del carrer (mirant cap al nord)
 // L'ordre 'YXZ' evita que la càmera es "decanti" al girar i mirar amunt/avall.
 camera.rotation.order = 'YXZ';
 
@@ -61,7 +65,7 @@ moonLight.position.set(-20, 40, 10);
 scene.add(moonLight);
 
 // -----------------------------------------------------
-// 6. TERRA I QUADRAT PROVISIONAL
+// 6. TERRA PROVISIONAL I POBLE
 // -----------------------------------------------------
 // MeshLambertMaterial és més lleuger que MeshStandardMaterial:
 // ideal per a la teva AMD Radeon HD 6770M.
@@ -72,13 +76,13 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2; // El plànol és vertical per defecte; el posem horitzontal
 scene.add(ground);
 
-// Element provisional davant del jugador (serveix de referència visual).
-const provisionalSquare = new THREE.Mesh(
-  new THREE.BoxGeometry(2, 2, 2),
-  new THREE.MeshLambertMaterial({ color: 0x8a6a4a })
-);
-provisionalSquare.position.set(0, 1, -8); // Recolzat al terra (la meitat de l'alçada = 1)
-scene.add(provisionalSquare);
+// Poble greybox (edificis, murs, font, arbre, atrezzo i fanals), construït
+// a partir de les dades de src/world/layout.js.
+buildVillage(scene);
+
+// Col·lidors: es construeixen UNA sola vegada a partir del mateix layout.
+const colliders = buildColliders({ BUILDINGS, WALLS, PROPS });
+const moveResult = createMoveResult(); // objecte reutilitzat cada fotograma (sense crear brossa)
 
 // -----------------------------------------------------
 // 7. CAPA D'INSTRUCCIONS (overlay)
@@ -188,11 +192,17 @@ function updatePlayer(dt) {
   const blend = Math.min(1, ACCELERATION * dt);
   velocity.lerp(targetVelocity, blend);
 
-  // Apliquem el moviment a la posició.
-  camera.position.x += velocity.x * dt;
-  camera.position.z += velocity.z * dt;
+  // Apliquem el moviment amb col·lisions: movePlayer() empeny el jugador fora
+  // de parets i objectes i el deixa lliscar al llarg d'ells.
+  movePlayer(
+    camera.position.x, camera.position.z,   // posició actual
+    velocity.x * dt, velocity.z * dt,       // desplaçament d'aquest fotograma
+    PLAYER_RADIUS, colliders, moveResult
+  );
+  camera.position.x = moveResult.x;
+  camera.position.z = moveResult.z;
 
-  // Límits del mapa (provisionals, fins que hi hagi murs i cases).
+  // Límits del mapa (seguretat: el poble ja queda tancat pels murs).
   camera.position.x = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, camera.position.x));
   camera.position.z = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, camera.position.z));
 
