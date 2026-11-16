@@ -2,7 +2,11 @@
 import * as THREE from 'three';
 import { buildVillage } from './world/village.js';
 import { buildColliders, movePlayer, createMoveResult } from './player/collisions.js';
-import { BUILDINGS, WALLS, PROPS } from './world/layout.js';
+import { createSwingDoor } from './player/doors.js';
+import { createGameplay } from './player/puzzle.js';
+import { createHouseDoor } from './player/houseDoors.js';
+import { createFloors, smoothHeight } from './player/floors.js';
+import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS } from './world/layout.js';
 
 // -----------------------------------------------------
 // 1. CONFIGURACIÓ (valors que pots retocar fàcilment)
@@ -34,9 +38,12 @@ document.body.appendChild(renderer.domElement);
 // 3. ESCENA, BOIRA I ATMOSFERA NOCTURNA
 // -----------------------------------------------------
 const scene = new THREE.Scene();
-const nightColor = 0x0b1020;            // Blau-gris molt fosc
-scene.background = new THREE.Color(nightColor);
-scene.fog = new THREE.Fog(nightColor, 8, 60); // Boira: comença a 8 m i és total a 60 m
+// La boira i l'horitzó del cel comparteixen EXACTAMENT el mateix color: així el terra
+// llunyà (esvaït per la boira) es fon amb el cel sense cap línia d'horitzó visible.
+const SKY_ZENITH = 0x050a1a;            // Blau marí molt fosc (part alta del cel)
+const SKY_HORIZON = 0x142038;           // Blau fred una mica més clar (horitzó i boira)
+scene.background = new THREE.Color(SKY_HORIZON); // només és el color de reserva: el cel el tapa
+scene.fog = new THREE.Fog(SKY_HORIZON, 8, 60);   // Boira: comença a 8 m i és total a 60 m
 
 // -----------------------------------------------------
 // 4. CÀMERA (els ulls del jugador)
@@ -65,6 +72,295 @@ moonLight.position.set(-20, 40, 10);
 scene.add(moonLight);
 
 // -----------------------------------------------------
+// 5b. CEL NOCTURN (degradat, lluna, estrelles i núvols)
+// -----------------------------------------------------
+// Tot el cel penja d'UN SOL grup que se situa a la posició de la càmera a cada
+// fotograma (però MAI gira amb ella): el jugador no pot apropar-se a la geometria
+// del cel i les estrelles/lluna queden fixes respecte al món. Cap peça del cel
+// escriu al buffer de profunditat, així que el poble sempre es dibuixa per davant.
+// Ordre de dibuix (renderOrder): cúpula → estrelles → núvols → halo → lluna.
+// El cel no existeix per a les col·lisions ni per al pointer lock (no hi ha cap
+// raycast ni llistat d'obstacles que el vegi).
+const SKY = {
+  domeRadius: 90,      // la càmera dibuixa fins a 100: tot el cel hi queda dins
+  starRadius: 88,
+  cloudRadius: 86,
+  moonRadius: 80,
+  moonDir: new THREE.Vector3(-0.5, 0.5, -0.7).normalize(), // ~30° d'alçada, al nord-oest
+  moonSize: 10,        // costat del quad de la lluna (≈ 7° de diàmetre aparent)
+  haloSize: 50,
+  cloudSpeed: 0.003,   // rad/s: una volta completa cada ~35 min (gairebé imperceptible)
+  starCount: 1000,
+};
+
+function skyRandom(seed) { // generador pseudoaleatori determinista (el cel és igual a cada partida)
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function skyClamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function skySmooth(e0, e1, x) { const t = skyClamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }
+
+// Textura de canvas petita. `pixel` = filtre Nearest (píxel visible, estil pixel-art).
+function skyCanvasTexture(w, h, pixel, paint) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  paint(ctx, w, h);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = false;
+  tex.magFilter = pixel ? THREE.NearestFilter : THREE.LinearFilter;
+  tex.minFilter = pixel ? THREE.NearestFilter : THREE.LinearFilter;
+  return tex;
+}
+
+// Lluna 64×64: disc blanc trencat amb to blavós, mars i cràters, llum des de dalt-esquerra,
+// enfosquiment a la vora i colors quantitzats (bandes de píxel visibles).
+function paintMoon(ctx, w, h) {
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  const rnd = skyRandom(1907);
+  const c = (w - 1) / 2;
+  const R = w / 2 - 1.5;
+  const maria = []; const craters = [];
+  for (let i = 0; i < 5; i++) { // mars: taques grans i fosques
+    const a = rnd() * Math.PI * 2; const rr = rnd() * R * 0.55;
+    maria.push({ x: c + Math.cos(a) * rr, y: c + Math.sin(a) * rr, r: 7 + rnd() * 7 });
+  }
+  for (let i = 0; i < 16; i++) { // cràters: forats petits amb vora il·luminada
+    const a = rnd() * Math.PI * 2; const rr = Math.sqrt(rnd()) * R * 0.82;
+    craters.push({ x: c + Math.cos(a) * rr, y: c + Math.sin(a) * rr, r: 2 + rnd() * 4 });
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = x - c; const dy = y - c;
+      const dist = Math.hypot(dx, dy);
+      if (dist > R) continue; // fora del disc: transparent
+      let lum = 0.72 + 0.3 * skyClamp(0.5 - (dx + dy) / (R * 2.8), 0, 1); // llum cap a dalt-esquerra
+      lum *= 1 - 0.24 * Math.pow(dist / R, 3);                               // vora més fosca
+      for (const m of maria) {
+        const md = Math.hypot(x - m.x, y - m.y) + Math.sin((x + y) * 0.9) * 0.9; // vora irregular
+        if (md < m.r) lum *= 0.84;
+      }
+      for (const k of craters) {
+        const kd = Math.hypot(x - k.x, y - k.y);
+        if (kd < k.r - 0.6) lum *= 0.86;
+        else if (kd < k.r + 0.7) lum *= ((x - k.x) + (y - k.y)) < 0 ? 1.07 : 0.93; // vora clara/ombra
+      }
+      lum *= 0.97 + rnd() * 0.05;
+      lum = Math.round(skyClamp(lum, 0, 1.08) * 16) / 16; // paleta curta: aspecte pixel-art
+      const i = (y * w + x) * 4;
+      d[i] = Math.min(255, 226 * lum);
+      d[i + 1] = Math.min(255, 233 * lum);
+      d[i + 2] = Math.min(255, 247 * lum); // lleuger to blavós
+      d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+// Halo: degradat radial suau (s'usarà en additiu, per tant només suma una mica de llum al cel).
+function paintHalo(ctx, w, h) {
+  const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  g.addColorStop(0.00, 'rgba(185,205,255,0.55)');
+  g.addColorStop(0.18, 'rgba(160,185,240,0.30)');
+  g.addColorStop(0.40, 'rgba(120,150,215,0.12)');
+  g.addColorStop(0.70, 'rgba(90,115,180,0.04)');
+  g.addColorStop(1.00, 'rgba(70,95,160,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+}
+
+// Núvols: soroll de valors que ENVOLTA horitzontalment (sense costura), 3 nivells d'alfa.
+// Fila 0 = zenit, última fila = horitzó. Es desvaeixen als dos extrems.
+function paintClouds(ctx, w, h) {
+  const rnd = skyRandom(4242);
+  const octaves = [{ gx: 8, gy: 4, amp: 0.55 }, { gx: 16, gy: 8, amp: 0.3 }, { gx: 32, gy: 16, amp: 0.15 }];
+  for (const o of octaves) { // reixeta de valors aleatoris (la columna 0 es repeteix al final)
+    o.lat = [];
+    for (let j = 0; j <= o.gy; j++) {
+      const row = [];
+      for (let i = 0; i < o.gx; i++) row.push(rnd());
+      o.lat.push(row);
+    }
+  }
+  const sample = (o, u, v) => { // u, v en [0,1)
+    const x = u * o.gx; const y = v * o.gy;
+    const x0 = Math.floor(x); const y0 = Math.min(Math.floor(y), o.gy - 1);
+    const fx = x - x0; const fy = y - y0;
+    const sx = fx * fx * (3 - 2 * fx); const sy = fy * fy * (3 - 2 * fy);
+    const a = o.lat[y0][x0 % o.gx]; const b = o.lat[y0][(x0 + 1) % o.gx];
+    const c = o.lat[y0 + 1][x0 % o.gx]; const e = o.lat[y0 + 1][(x0 + 1) % o.gx];
+    return (a + (b - a) * sx) * (1 - sy) + (c + (e - c) * sx) * sy;
+  };
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  const levels = [ // [llindar, r, g, b, alfa]: blaus foscos i freds, molt subtils
+    [0.56, 38, 56, 92, 46],
+    [0.64, 32, 48, 82, 66],
+    [0.72, 24, 38, 68, 84],
+  ];
+  for (let y = 0; y < h; y++) {
+    const f = y / (h - 1);
+    const fade = skySmooth(0.04, 0.16, f) * (1 - skySmooth(0.78, 0.96, f)); // sense núvols al zenit ni a l'horitzó
+    for (let x = 0; x < w; x++) {
+      let v = 0;
+      for (const o of octaves) v += sample(o, x / w, f * 0.999) * o.amp;
+      v = v * fade + (1 - fade) * 0; // fora de la franja, no hi ha núvol
+      let level = null;
+      for (const l of levels) if (v >= l[0]) level = l;
+      if (!level) continue;
+      const i = (y * w + x) * 4;
+      d[i] = level[1]; d[i + 1] = level[2]; d[i + 2] = level[3]; d[i + 3] = level[4];
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function createSky() {
+  const group = new THREE.Group();
+  group.name = 'Sky';
+  const geometries = []; const materials = []; const textures = [];
+  const track = (list, item) => { list.push(item); return item; };
+
+  // --- Cúpula amb degradat (colors als vèrtexs + dithering: transició sense bandes) ---
+  const domeGeo = track(geometries, new THREE.SphereGeometry(SKY.domeRadius, 24, 40));
+  {
+    const pos = domeGeo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const cz = new THREE.Color(SKY_ZENITH); const ch = new THREE.Color(SKY_HORIZON); const tmp = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const t = skyClamp(pos.getY(i) / SKY.domeRadius, 0, 1); // 0 = horitzó, 1 = zenit
+      tmp.lerpColors(ch, cz, Math.pow(t, 0.65));
+      colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b;
+    }
+    domeGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
+  const domeMat = track(materials, new THREE.MeshBasicMaterial({
+    vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false, dithering: true,
+  }));
+  const dome = new THREE.Mesh(domeGeo, domeMat);
+  dome.name = 'SkyDome'; dome.renderOrder = -100; dome.frustumCulled = false;
+  group.add(dome);
+
+  // --- Estrelles: distribució no uniforme (banda més densa), evitant la zona de la lluna ---
+  const rnd = skyRandom(777);
+  const bandNormal = new THREE.Vector3(0.35, 0.8, -0.5).normalize(); // "camí de llet" molt subtil
+  const dim = []; const bright = []; const twinkle = [[], [], []];
+  const palette = [0xdfe8ff, 0xcdd9ff, 0xfff1d6, 0xffffff, 0xb8c8ff].map((h) => new THREE.Color(h));
+  const dir = new THREE.Vector3();
+  let placed = 0;
+  for (let tries = 0; placed < SKY.starCount && tries < 60000; tries++) {
+    const u = rnd() * 2 - 1; const a = rnd() * Math.PI * 2; const s = Math.sqrt(1 - u * u);
+    dir.set(s * Math.cos(a), u, s * Math.sin(a));
+    if (dir.y < 0.03) continue;                                   // només per sobre de l'horitzó
+    if (dir.dot(SKY.moonDir) > Math.cos(0.17)) continue;          // la lluna i el seu halo queden nets
+    const band = Math.abs(dir.dot(bandNormal));
+    if (rnd() > 0.3 + 0.7 * Math.exp(-Math.pow(band / 0.22, 2))) continue; // més estrelles a la banda
+    const kind = rnd();
+    const base = palette[Math.floor(rnd() * palette.length)];
+    const horizonFade = 0.35 + 0.65 * skySmooth(0.03, 0.3, dir.y); // més tènues a prop de l'horitzó
+    let target; let lum;
+    if (kind < 0.06) { target = bright; lum = 0.9 + rnd() * 0.1; }
+    else if (kind < 0.14) { target = twinkle[Math.floor(rnd() * 3)]; lum = 0.8 + rnd() * 0.2; }
+    else { target = dim; lum = 0.3 + rnd() * 0.45; }
+    lum *= horizonFade;
+    target.push(dir.x * SKY.starRadius, dir.y * SKY.starRadius, dir.z * SKY.starRadius, base.r * lum, base.g * lum, base.b * lum);
+    placed += 1;
+  }
+  const starLayer = (data, size, order, animated) => {
+    const n = data.length / 6;
+    const p = new Float32Array(n * 3); const c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      p[i * 3] = data[i * 6]; p[i * 3 + 1] = data[i * 6 + 1]; p[i * 3 + 2] = data[i * 6 + 2];
+      c[i * 3] = data[i * 6 + 3]; c[i * 3 + 1] = data[i * 6 + 4]; c[i * 3 + 2] = data[i * 6 + 5];
+    }
+    const geo = track(geometries, new THREE.BufferGeometry());
+    geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    // Punts quadrats d'amplada fixa en píxels (sense atenuació): estrelles de píxel net.
+    const mat = track(materials, new THREE.PointsMaterial({
+      size, sizeAttenuation: false, vertexColors: true, fog: false, depthWrite: false,
+      transparent: animated, opacity: 1,
+    }));
+    const pts = new THREE.Points(geo, mat);
+    pts.renderOrder = order; pts.frustumCulled = false;
+    group.add(pts);
+    return mat;
+  };
+  starLayer(dim, 2, -90, false);
+  starLayer(bright, 3, -89, false);
+  const twinkleMats = twinkle.map((data, i) => starLayer(data, i === 0 ? 3 : 2, -85 + i, true));
+  const twinkleSpeed = [0.55, 0.8, 0.4];  // rad/s: períodes de 8 a 16 s
+  const twinklePhase = [0, 2.1, 4.2];
+
+  // --- Núvols: mitja cúpula amb textura transparent que gira molt lentament ---
+  const cloudTex = track(textures, skyCanvasTexture(256, 64, true, paintClouds));
+  const cloudGeo = track(geometries, new THREE.SphereGeometry(SKY.cloudRadius, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2));
+  const cloudMat = track(materials, new THREE.MeshBasicMaterial({
+    map: cloudTex, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false,
+  }));
+  const clouds = new THREE.Mesh(cloudGeo, cloudMat);
+  clouds.name = 'SkyClouds'; clouds.renderOrder = -70; clouds.frustumCulled = false;
+  group.add(clouds);
+
+  // --- Halo i lluna: dos quads orientats cap a la càmera (el grup no gira, per tant fixos al món) ---
+  const quad = track(geometries, new THREE.PlaneGeometry(1, 1));
+  const haloTex = track(textures, skyCanvasTexture(128, 128, false, paintHalo));
+  const haloMat = track(materials, new THREE.MeshBasicMaterial({
+    map: haloTex, transparent: true, blending: THREE.AdditiveBlending, fog: false, depthWrite: false,
+  }));
+  const halo = new THREE.Mesh(quad, haloMat);
+  halo.name = 'MoonHalo'; halo.renderOrder = -60; halo.frustumCulled = false;
+  halo.scale.set(SKY.haloSize, SKY.haloSize, 1);
+  halo.position.copy(SKY.moonDir).multiplyScalar(SKY.moonRadius + 0.5);
+  halo.lookAt(0, 0, 0); // el grup encara és a l'origen: la orientació és local i correcta
+  group.add(halo);
+
+  const moonTex = track(textures, skyCanvasTexture(64, 64, true, paintMoon));
+  const moonMat = track(materials, new THREE.MeshBasicMaterial({
+    map: moonTex, transparent: true, alphaTest: 0.5, fog: false, depthWrite: false,
+  }));
+  const moon = new THREE.Mesh(quad, moonMat);
+  moon.name = 'Moon'; moon.renderOrder = -50; moon.frustumCulled = false;
+  moon.scale.set(SKY.moonSize, SKY.moonSize, 1);
+  moon.position.copy(SKY.moonDir).multiplyScalar(SKY.moonRadius);
+  moon.lookAt(0, 0, 0);
+  group.add(moon);
+
+  scene.add(group);
+
+  return {
+    group,
+    // Es crida a cada fotograma: segueix la càmera (només posició), anima núvols i parpelleig.
+    update(dt, cam, seconds) {
+      group.position.copy(cam.position);
+      clouds.rotation.y += SKY.cloudSpeed * dt;
+      for (let i = 0; i < twinkleMats.length; i++) {
+        twinkleMats[i].opacity = 0.7 + 0.3 * Math.sin(seconds * twinkleSpeed[i] + twinklePhase[i]); // 0.4–1.0, lent
+      }
+    },
+    dispose() {
+      scene.remove(group);
+      geometries.forEach((g) => g.dispose());
+      materials.forEach((m) => m.dispose());
+      textures.forEach((t) => t.dispose());
+    },
+  };
+}
+
+const sky = createSky();
+// Alliberem els recursos GPU del cel en tancar/descarregar la pàgina.
+window.addEventListener('pagehide', () => sky.dispose());
+
+// -----------------------------------------------------
 // 6. TERRA PROVISIONAL I POBLE
 // -----------------------------------------------------
 // MeshLambertMaterial és més lleuger que MeshStandardMaterial:
@@ -78,10 +374,59 @@ scene.add(ground);
 
 // Poble greybox (edificis, murs, font, arbre, atrezzo i fanals), construït
 // a partir de les dades de src/world/layout.js.
-buildVillage(scene);
+const village = buildVillage(scene);
 
 // Col·lidors: es construeixen UNA sola vegada a partir del mateix layout.
-const colliders = buildColliders({ BUILDINGS, WALLS, PROPS });
+const colliders = buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS }); // FURNITURE: bancs, altar i mobles (Fase B); STAIRS: escala de la casa C (Fase C)
+
+// Porta física de l'església (D1): dues fulles que giren. Les seves col·lisions (segments)
+// s'afegeixen a la mateixa llista i es MOUEN amb les fulles; doors.js en calcula l'estat.
+const churchDoor = createSwingDoor(DOORS.find((d) => d.id === 'D1'));
+colliders.push(...churchDoor.colliders);
+const churchDoorVisual = village.doors.D1;
+const syncDoorVisual = () => churchDoorVisual.setAngles(churchDoor.leaves[0].angle, churchDoor.leaves[1].angle);
+syncDoorVisual();
+
+// Primer puzle (Fase B): inventari, calaix/arca, dues claus i porta secreta. Tota la lògica és a src/player/puzzle.js;
+// aquí només es connecten la mirada, la tecla E, el HUD i el que es dibuixa (village.puzzle).
+// Portes de les cases A, B i C (Fase C): comencen TANCADES; E les obre i les tanca. El seu obstacle de pas és a la mateixa llista.
+const houseDoors = DOORS.filter((d) => d.house).map((d) => createHouseDoor(d));
+for (const hd of houseDoors) colliders.push(hd.collider);
+const houseDoorVisuals = village.doors;
+const shownDoor = {};
+function syncHouseDoors() { // només toca la geometria quan l'angle ha canviat
+  for (const hd of houseDoors) {
+    const a = hd.signedAngle;
+    if (shownDoor[hd.id] !== a) { shownDoor[hd.id] = a; houseDoorVisuals[hd.id].setAngle(a); }
+  }
+}
+syncHouseDoors();
+
+// Terra i escala de la casa C (Fase C): l'alçada dels peus depèn de la posició i del nivell (src/player/floors.js).
+const floors = createFloors(FLOORS);
+let playerLevel = 0;      // 0 = planta baixa, 1 = pis superior
+let feetY = 0;            // alçada dels peus (la càmera és a feetY + EYE_HEIGHT, suavitzada)
+let eyeY = EYE_HEIGHT;
+
+// Línia de visió de les portes de casa: només obstacles massissos (parets, escales), no els mobles baixos.
+const doorOccluders = buildColliders({ BUILDINGS, WALLS, PROPS: [], FURNITURE: [], STAIRS });
+const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS });
+const puzzleVisual = village.puzzle;
+const shown = { door: -1, drawer: -1, lid: -1, keys: {}, inserted: {} };
+function syncPuzzleVisual() { // només toca la geometria quan l'estat ha canviat
+  const sd = gameplay.secretDoor.progress();
+  if (sd !== shown.door) { shown.door = sd; puzzleVisual.setSecretDoorProgress(sd); }
+  for (const [id, key] of [['A-DRS', 'drawer'], ['B-CHS', 'lid']]) {
+    const p = gameplay.containers[id].progress();
+    if (p !== shown[key]) { shown[key] = p; puzzleVisual.setContainerProgress(id, p); }
+  }
+  for (const k of KEYS) {
+    const vis = gameplay.containers[k.container].isOpen() && !gameplay.hasKeyTaken(k.id);
+    if (vis !== shown.keys[k.id]) { shown.keys[k.id] = vis; puzzleVisual.setKeyVisible(k.id, vis); }
+    const ins = gameplay.secretDoor.isInserted(k.id);
+    if (ins !== shown.inserted[k.id]) { shown.inserted[k.id] = ins; puzzleVisual.setKeyInserted(k.id, ins); }
+  }
+}
 const moveResult = createMoveResult(); // objecte reutilitzat cada fotograma (sense crear brossa)
 
 // -----------------------------------------------------
@@ -105,10 +450,38 @@ overlay.innerHTML = `
   <div style="font-size: 16px; line-height: 1.8; opacity: 0.85;">
     W A S D — moure's<br>
     Ratolí — mirar al voltant<br>
+    E — interactuar (portes, calaixos, claus)<br>
     Esc — alliberar el ratolí
   </div>
 `;
 document.body.appendChild(overlay);
+
+// Indicador de la porta (només visible a prop de la porta de l'església, amb el ratolí capturat).
+// pointer-events: none → no intercepta clics ni afecta el pointer lock.
+const doorHint = document.createElement('div'); // indicació de la tecla E (només amb un objecte interactuable davant)
+doorHint.style.cssText = `
+  position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
+  padding: 6px 14px; display: none; pointer-events: none; user-select: none;
+  background: rgba(0, 0, 0, 0.45); color: #d8dcea; border-radius: 4px;
+  font-family: Georgia, serif; font-size: 16px;
+`;
+document.body.appendChild(doorHint);
+// Missatges (examinar la porta, recollir una clau...) i inventari mínim. Tots amb pointer-events: none.
+const messageBox = document.createElement('div');
+messageBox.style.cssText = `
+  position: fixed; left: 50%; bottom: 20%; transform: translateX(-50%); max-width: 70%;
+  padding: 10px 18px; display: none; pointer-events: none; user-select: none; text-align: center;
+  background: rgba(0, 0, 0, 0.6); color: #e6dcc0; border-radius: 4px;
+  font-family: Georgia, serif; font-size: 18px; line-height: 1.4;
+`;
+document.body.appendChild(messageBox);
+const inventoryBox = document.createElement('div');
+inventoryBox.style.cssText = `
+  position: fixed; left: 16px; top: 16px; padding: 8px 12px; display: none; pointer-events: none; user-select: none;
+  background: rgba(0, 0, 0, 0.45); color: #d8dcea; border-radius: 4px;
+  font-family: Georgia, serif; font-size: 15px; line-height: 1.5;
+`;
+document.body.appendChild(inventoryBox);
 
 // -----------------------------------------------------
 // 8. POINTER LOCK (captura del ratolí)
@@ -145,7 +518,14 @@ function setKey(code, pressed) {
   if (code === 'KeyA') keys.left = pressed;
   if (code === 'KeyD') keys.right = pressed;
 }
-document.addEventListener('keydown', (e) => setKey(e.code, true));
+document.addEventListener('keydown', (e) => {
+  setKey(e.code, true);
+  // E: interacciona amb UN SOL objecte (el més proper i davant dels ulls): porta de l'església, calaix, arca, clau
+  // o porta secreta. Només amb el ratolí capturat i sense repetició de tecla.
+  if (e.code === 'KeyE' && !e.repeat && document.pointerLockElement === renderer.domElement) {
+    gameplay.pressE(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw), { level: playerLevel, feetY });
+  }
+});
 document.addEventListener('keyup', (e) => setKey(e.code, false));
 
 // Rotació de la càmera:
@@ -194,10 +574,17 @@ function updatePlayer(dt) {
 
   // Apliquem el moviment amb col·lisions: movePlayer() empeny el jugador fora
   // de parets i objectes i el deixa lliscar al llarg d'ells.
+  // Primer la porta (les fulles cedeixen si el jugador les empeny o s'animen amb E) i després el moviment:
+  // així movePlayer() ja veu les fulles a la seva posició real d'aquest fotograma.
+  const doorStep = churchDoor.update(dt, camera.position.x, camera.position.z, velocity.x * dt, velocity.z * dt, PLAYER_RADIUS, colliders);
+  if (doorStep.nudged) { // una fulla animada amb E ha empès el jugador cap enrere (de forma segura)
+    camera.position.x = doorStep.x;
+    camera.position.z = doorStep.z;
+  }
   movePlayer(
     camera.position.x, camera.position.z,   // posició actual
     velocity.x * dt, velocity.z * dt,       // desplaçament d'aquest fotograma
-    PLAYER_RADIUS, colliders, moveResult
+    PLAYER_RADIUS, colliders, moveResult, playerLevel
   );
   camera.position.x = moveResult.x;
   camera.position.z = moveResult.z;
@@ -206,9 +593,27 @@ function updatePlayer(dt) {
   camera.position.x = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, camera.position.x));
   camera.position.z = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, camera.position.z));
 
-  // El terra és pla a y = 0: mantenim els ulls sempre a 1,7 m,
-  // així el jugador mai pot quedar per sota del terra.
-  camera.position.y = EYE_HEIGHT;
+  // Terra: pla a y = 0 excepte a la casa C (escala i pis superior). L'alçada dels peus surt de la posició i el nivell;
+  // els ulls hi van darrere, suavitzats (sense salts a cada graó).
+  const fl = floors.resolve(camera.position.x, camera.position.z, playerLevel);
+  feetY = fl.y; playerLevel = fl.level;
+  eyeY = smoothHeight(eyeY, feetY + EYE_HEIGHT, dt);
+  camera.position.y = eyeY;
+
+  syncDoorVisual(); // la fulla dibuixada segueix la de la física (no toca res si no s'ha mogut)
+
+  // Puzle: l'estat avança i el que es veu el segueix; després el HUD (indicació d'E, missatge i inventari).
+  gameplay.update(dt, camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw), { level: playerLevel, feetY });
+  syncPuzzleVisual();
+  syncHouseDoors();
+  const locked = document.pointerLockElement === renderer.domElement;
+  const hintText = locked ? gameplay.prompt : '';
+  if (doorHint.textContent !== hintText) { doorHint.textContent = hintText; doorHint.style.display = hintText ? 'block' : 'none'; }
+  const msgText = gameplay.message;
+  if (messageBox.textContent !== msgText) { messageBox.textContent = msgText; messageBox.style.display = msgText ? 'block' : 'none'; }
+  const inv = gameplay.inventory.list();
+  const invText = inv.length ? `Inventari — ${inv.map((i) => i.name).join(' · ')}   (${inv.length}/${KEYS.length} claus)` : '';
+  if (inventoryBox.textContent !== invText) { inventoryBox.textContent = invText; inventoryBox.style.display = invText ? 'block' : 'none'; }
 
   // Apliquem la rotació a la càmera.
   camera.rotation.y = yaw;
@@ -239,6 +644,7 @@ function animate() {
   lastTime = now;
 
   updatePlayer(dt);
+  sky.update(dt, camera, now / 1000); // el cel segueix la càmera (després de moure-la)
   renderer.render(scene, camera);
 }
 
