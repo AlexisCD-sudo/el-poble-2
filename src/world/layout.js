@@ -650,3 +650,150 @@ export const PLAYER = {
   collisionRadius: 0.35, // cercle en el pla XZ
   yaw: 0, // radians; 0 = mira cap al nord (−Z)
 };
+
+// =====================================================================
+// FASE D.2 — CEMENTIRI (només dades). Especificació: docs/FASE_D1_CEMENTIRI_DISSENY.md, v4 «DISSENY FINAL APROVAT».
+// Les coordenades i els ids són els de l'informe; no s'han de canviar per conveniència.
+//
+// Per no barrejar-se amb el poble ni trencar cap prova existent, el cementiri viu en GRUPS NOUS (CEM_WALLS, CEM_PROPS) amb
+// la mateixa forma que WALLS i PROPS (cada objecte té `visual` i `collision`). buildColliders (collisions.js) les llegeix com
+// a grups opcionals i main.js els hi passa.
+//   - Clos principal x 4→28, z −34→−9,4 (24 × 24,6 m) + vestíbul x 15,4→28, z −9,4→−7 davant de la reixa.
+//   - Els murs nous creixen cap a l'EXTERIOR (la cara transitable cau en un nombre enter) i tanquen el perímetre amb M-N1, M-E3,
+//     M-E1 i la nau de l'església. El jugador NO pot entrar-hi a la Fase D.2: la reixa (M-E3) és sòlida.
+//   - NO hi ha `openCollision` ni cap estat de la reixa: això és la Fase D.4. La porta posterior és NOMÉS visual i tancada.
+// =====================================================================
+const cemRect = (xMin, xMax, zMin, zMax) => ({ type: 'rect', xMin, xMax, zMin, zMax });
+const cemWall = (id, name, xMin, xMax, zMin, zMax, extra = {}) => ({
+  id, name, visual: { footprint: cemRect(xMin, xMax, zMin, zMax), height: 2.8, ...extra }, collision: cemRect(xMin, xMax, zMin, zMax),
+});
+
+export const CEM_AREA = {
+  clos: cemRect(4, 28, -34, -9.4),
+  vestibule: cemRect(15.4, 28, -9.4, -7),
+};
+
+export const CEM_WALLS = [
+  // `breach`: tram esfondrat (NOMÉS visual: la col·lisió és contínua) amb vista al bosc futur. `looseStone`: pedra solta del mur oest.
+  cemWall('CW-N', 'Mur nord del cementiri (cara transitable z = −34)', 3.6, 28.4, -34.4, -34, { breach: { xMin: 21, xMax: 23.4, height: 1.4 } }),
+  cemWall('CW-E', 'Mur est del cementiri (cara transitable x = 28)', 28, 28.4, -34, -7),
+  cemWall('CW-S3', 'Mur sud del vestíbul (cara z = −7; prolonga M-E1)', 15.4, 28.4, -7, -6.6),
+  cemWall('CW-W', 'Mur oest del cementiri, darrere de l\'església (cara x = 4)', 3.6, 4, -34, -21, { looseStone: { z: -31.4, y: 1.0 } }),
+];
+
+// Porta posterior: només visual i TANCADA (cap col·lisió pròpia: la del mur CW-E és contínua).
+export const CEM_REAR_GATE = {
+  id: 'CEM-REAR', wallId: 'CW-E', zMin: -21, zMax: -19, height: 2.6,
+  state: 'closed', locked: true, opensCollision: false,
+};
+
+// Reixa d'entrada sobre M-E3 (x 15→15,4, z −9→−7). La col·lisió de M-E3 NO canvia (sòlida). Fase D.2: tancada i IMMÒBIL.
+// Obertura z −8,4→−7,0 (1,4 m, centre −7,7); pilar nord de pedra z −9→−8,4; pilar sud = extrem de M-E1 (sense col·lisió pròpia).
+export const CEM_GATE = {
+  id: 'CEM-GATE', wallId: 'M-E3',
+  opening: { zMin: -8.4, zMax: -7.0, center: -7.7, height: 2.6 },
+  pillarNorth: { zMin: -9, zMax: -8.4 },
+  southJamb: { zMin: -7.1, zMax: -7.0 },           // muntant VISUAL (ferro) de la frontissa: sense col·lisió
+  leaf: { x: 15.2, thickness: 0.06, length: 1.38, hingeZ: -7.05, bars: 8, rails: 3 },
+  padlock: { x: 14.93, y: 1.05, z: -7.7, symbol: 'cross' },
+  interactionPoint: { x: 15.0, z: -7.7 },          // (només dades per a D.4; cap interacció a D.2)
+  state: 'locked',
+};
+
+// Camins de terra gastats: NOMÉS decals (cap col·lisió). `width` en metres.
+export const CEM_PATHS = [
+  { id: 'E0', name: 'Entrada', width: 1.8, points: [[15.4, -7.7], [16.8, -8], [18.2, -8.6], [18, -13], [16.5, -14.8], [14.5, -16]] },
+  { id: 'P2', name: 'Camí de ronda', width: 1.8, points: [[5.5, -16], [12, -16], [24, -16], [24, -20], [28, -20]] },
+  { id: 'P1', name: "Camí de l'església", width: 1.6, points: [[5.5, -16], [5.5, -19], [6.4, -26], [8, -29.5], [8.6, -31.6]] },
+  { id: 'P3', name: 'Camí del mausoleu', width: 1.8, points: [[12, -16], [13.5, -22], [15, -28.4]] },
+  { id: 'P4', name: 'Branca de la fossa', width: 1.4, points: [[22.5, -16], [22.5, -14.6]] },
+  { id: 'P5', name: 'Camí de la caseta', width: 1.4, points: [[24, -20], [24.5, -28], [25.2, -30.4]] },
+];
+
+// Ajudants de dades per repartir làpides i creus (resultats deterministes, arrodonits a 1 mm).
+const r3 = (v) => Math.round(v * 1000) / 1000;
+const cemRow = (n, x0, step, z) => Array.from({ length: n }, (_, k) => ({ x: r3(x0 + k * step), z }));
+const GRAVE_W = 1.15; // ample d'una tomba lliure (x); fons 2,0 m (z): bloc = n × 1,15 × 2,0
+const cemGraves = (rect, kinds) => kinds.map((kind, k) => ({
+  x: r3(rect.xMin + GRAVE_W * (k + 0.5)), z: r3((rect.zMin + rect.zMax) / 2), w: GRAVE_W, l: rect.zMax - rect.zMin, kind,
+}));
+const cemBlock = (id, name, xMin, xMax, zMin, zMax, kinds) => {
+  const fp = cemRect(xMin, xMax, zMin, zMax);
+  return { id, type: 'graveBlock', name, visual: { footprint: fp, graves: cemGraves(fp, kinds) }, collision: { ...fp } };
+};
+const cemTree = (id, x, z, height) => ({
+  id, type: 'deadTree', name: 'Arbre mort', visual: { center: { x, z }, trunkRadius: 0.3, height }, collision: { type: 'circle', cx: x, cz: z, radius: 0.3 },
+});
+
+// ATREZZO DEL CEMENTIRI. `collision` = la que fixa l'informe (apartat 5.2 i 5.3). Els camps `visual.*` que no són l'empremta
+// (làpides, creus, tipus de tomba) són decoració i es poden repartir DINS de l'empremta.
+export const CEM_PROPS = [
+  {
+    id: 'CT2', type: 'sign', name: 'Cartell «CEMENTIRI →» (carreró est)',
+    visual: {
+      center: { x: 5.5, z: -7.6 }, postRadius: 0.2, height: 2.4,
+      // taulell 1,3 × 0,45 m (y 1,75→2,2), orientat a la plaça (cara cap al sud), fletxa a l'est
+      board: { width: 1.3, height: 0.45, bottom: 1.75, top: 2.2, thickness: 0.06, text: 'CEMENTIRI →', facing: 'south' },
+    },
+    collision: { type: 'circle', cx: 5.5, cz: -7.6, radius: 0.2 },
+  },
+  {
+    // Tomba de Sibil·la Aldaira (casa C), al vestíbul, a l'eix de la reixa. E–O; l'única làpida girada cap a l'entrada (cap a l'oest).
+    id: 'SIB', type: 'tomb', name: 'Tomba de Sibil·la Aldaira',
+    visual: { footprint: cemRect(20.4, 22.4, -9.2, -8.2), family: 'Aldaira', facing: 'west', inscription: ['SIBIL·LA', 'ALDAIRA'], height: 0.35, stoneHeight: 1.05 },
+    collision: cemRect(20.4, 22.4, -9.2, -8.2),
+  },
+  {
+    id: 'CAL', type: 'calvary', name: 'Calvari',
+    visual: { center: { x: 12, z: -16 }, radius: 0.9, height: 3.4 },
+    collision: { type: 'circle', cx: 12, cz: -16, radius: 0.9 },
+  },
+  {
+    id: 'MAU', type: 'mausoleum', name: 'Mausoleu segellat',
+    visual: { footprint: cemRect(12.5, 17.5, -34, -29.2), facing: 'south', sealed: true, height: 4.6 },
+    collision: cemRect(12.5, 17.5, -34, -29.2),
+  },
+  {
+    id: 'SHED', type: 'shed', name: 'Caseta del fosser',
+    visual: { footprint: cemRect(23.5, 26.8, -34, -30.5), facing: 'south', height: 2.5 },
+    collision: cemRect(23.5, 26.8, -34, -30.5),
+  },
+  {
+    id: 'PIT', type: 'openGrave', name: 'Fossa oberta',
+    visual: { footprint: cemRect(19.6, 20.8, -29.4, -27.2), height: 0.3 },
+    collision: cemRect(19.6, 20.8, -29.4, -27.2),
+  },
+  {
+    // 13 creus iguals, sense nom, amb la mateixa data. Reixa de ferro (no enterable): es veuen a través dels barrots.
+    id: 'FOSSA', type: 'massGrave', name: 'Fossa comuna amb reixa',
+    visual: { footprint: cemRect(19.5, 26.5, -14.4, -11.5), crosses: [...cemRow(7, 20.05, 0.97, -13.7), ...cemRow(6, 20.55, 0.98, -12.4)], fenceHeight: 1.25 },
+    collision: cemRect(19.5, 26.5, -14.4, -11.5),
+  },
+  {
+    id: 'LONE', type: 'loneGrave', name: 'Tomba solitària amb reixa',
+    visual: { footprint: cemRect(5.4, 7.8, -32.8, -30.4), fenceHeight: 1.0 },
+    collision: cemRect(5.4, 7.8, -32.8, -30.4),
+  },
+  {
+    // Parcel·la dels Montvell (casa A, campaners): 10 làpides amb campana; l'última, en blanc, amb un forat per a un batall.
+    id: 'ENC-M', type: 'plot', name: 'Parcel·la dels Montvell',
+    visual: { footprint: cemRect(17, 21.2, -25.6, -21.6), family: 'Montvell', symbol: 'bell', blankLast: true,
+      stones: [...cemRow(5, 17.6, 0.8, -24.75), ...cemRow(5, 17.6, 0.8, -22.55)], fenceHeight: 0.9 },
+    collision: cemRect(17, 21.2, -25.6, -21.6),
+  },
+  {
+    // Parcel·la dels Vilarnau (casa B, «els oblidats»): 6 làpides amb mitja lluna; 4 amb el nom picat.
+    id: 'ENC-V', type: 'plot', name: 'Parcel·la dels Vilarnau',
+    visual: { footprint: cemRect(17, 21.4, -20.2, -17.6), family: 'Vilarnau', symbol: 'moon', scarred: [1, 2, 4, 5],
+      stones: cemRow(6, 17.45, 0.72, -19.6), fenceHeight: 0.9 },
+    collision: cemRect(17, 21.4, -20.2, -17.6),
+  },
+  // Blocs de tombes lliures (11 tombes; amb SIB en fan 12)
+  cemBlock('Z1-a', 'Tombes Z1-a', 8.5, 10.8, -28, -26, ['arch', 'leaning']),
+  cemBlock('Z1-b', 'Tombes Z1-b', 7.6, 11.05, -24.8, -22.8, ['woodCross', 'bell', 'broken']),
+  cemBlock('Z1-c', 'Tombes Z1-c', 7.28, 10.73, -21.6, -19.6, ['stoneCross', 'scar', 'bare']),
+  cemBlock('Z3', 'Tombes Z3', 11.24, 14.69, -13.9, -11.9, ['arch', 'moon', 'plain']),
+  // Arbres morts (no són l'arbre de la plaça ARB: aquest no es toca)
+  cemTree('T1', 5.6, -28.4, 5.2), cemTree('T2', 9.4, -12.2, 4.6), cemTree('T4', 26.2, -24.5, 5.8),
+  cemTree('T6', 10.2, -31.0, 4.4), cemTree('T7', 19.4, -31.8, 5.0),
+];

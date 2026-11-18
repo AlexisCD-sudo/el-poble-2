@@ -6,7 +6,7 @@ import { createSwingDoor } from './player/doors.js';
 import { createGameplay } from './player/puzzle.js';
 import { createHouseDoor } from './player/houseDoors.js';
 import { createFloors, smoothHeight } from './player/floors.js';
-import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS } from './world/layout.js';
+import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS, CEM_WALLS, CEM_PROPS } from './world/layout.js';
 
 // -----------------------------------------------------
 // 1. CONFIGURACIÓ (valors que pots retocar fàcilment)
@@ -377,7 +377,10 @@ scene.add(ground);
 const village = buildVillage(scene);
 
 // Col·lidors: es construeixen UNA sola vegada a partir del mateix layout.
-const colliders = buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS }); // FURNITURE: bancs, altar i mobles (Fase B); STAIRS: escala de la casa C (Fase C)
+// FURNITURE: bancs, altar i mobles (Fase B); STAIRS: escala de la casa C (Fase C); CEM_WALLS / CEM_PROPS: cementiri, inaccessible (Fase D.2)
+const colliders = buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS });
+// Fase D.2: el cementiri és visible però inaccessible. Els seus murs i atrezzo (CEM_WALLS, CEM_PROPS) afegeixen només obstacles.
+colliders.push(...buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CEM_WALLS, CEM_PROPS }));
 
 // Porta física de l'església (D1): dues fulles que giren. Les seves col·lisions (segments)
 // s'afegeixen a la mateixa llista i es MOUEN amb les fulles; doors.js en calcula l'estat.

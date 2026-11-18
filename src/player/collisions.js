@@ -99,7 +99,8 @@ export function distanceToSegment(px, pz, x1, z1, x2, z2, out) {
 // té l'interior i la porta oberts). Cada forma de la llista és un obstacle.
 export function buildColliders(layout) {
   const colliders = [];
-  for (const group of [layout.BUILDINGS, layout.WALLS, layout.PROPS, layout.FURNITURE || [], layout.STAIRS || []]) { // FURNITURE (Fase B) i STAIRS (Fase C) són opcionals
+  // FURNITURE (Fase B), STAIRS (Fase C) i CEM_WALLS / CEM_PROPS (Fase D.2, cementiri) són opcionals.
+  for (const group of [layout.BUILDINGS, layout.WALLS, layout.PROPS, layout.FURNITURE || [], layout.STAIRS || [], layout.CEM_WALLS || [], layout.CEM_PROPS || []]) {
     for (const item of group) {
       if (!item.collision) continue;
       if (Array.isArray(item.collision)) {

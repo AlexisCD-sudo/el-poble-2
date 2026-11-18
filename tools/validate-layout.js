@@ -10,6 +10,7 @@
 //   C2. Porta de fulles (D1 swing)
 //   C3. Interiors: mobles, claus i porta secreta (Fase B)
 //   D. Valors aprovats ("golden")     H. Mutacions (el validador es prova a si mateix)
+//   I. Cementiri (Fase D.2): murs, perímetre segellat, reixa tancada, cartell CT2, camins, passos
 //
 // Surt amb codi 1 si hi ha algun error. Al final imprimeix el mapa de
 // col·lisió generat a partir de les dades.
@@ -39,6 +40,8 @@ const rectEq = (a, b) => RECT_KEYS.every((k) => eq(a[k], b[k]));
 const pickLayout = (L) => ({
   BUILDINGS: L.BUILDINGS, WALLS: L.WALLS, PROPS: L.PROPS, FURNITURE: L.FURNITURE, SECRET_DOOR: L.SECRET_DOOR, KEYS: L.KEYS, DOORS: L.DOORS,
   LIGHTS: L.LIGHTS, STAIRS: L.STAIRS, FLOORS: L.FLOORS, PLAYER: L.PLAYER, PLAZA: L.PLAZA, LAYOUT_META: L.LAYOUT_META,
+  // Fase D.2: cementiri (les seccions A–G continuen analitzant només el poble; la secció I analitza el cementiri)
+  CEM_AREA: L.CEM_AREA, CEM_WALLS: L.CEM_WALLS, CEM_GATE: L.CEM_GATE, CEM_REAR_GATE: L.CEM_REAR_GATE, CEM_PROPS: L.CEM_PROPS, CEM_PATHS: L.CEM_PATHS,
 });
 const solidsOf = (L) => [...L.BUILDINGS, ...L.WALLS];
 // `collision` d'un objecte: una forma o (església, Fase A) una llista de formes amb `id`.
@@ -524,16 +527,16 @@ function flood(passable, nx, nz, startIdx) {
 
 // level: 0 = planta baixa, 1 = pis superior (només compten els obstacles actius a aquell nivell).
 // blocks: rectangles extra (forat de l'escala al pis superior).
-function computeGrid(allColliders, radius, start, cell, level = 0, blocks = []) {
+function computeGrid(allColliders, radius, start, cell, level = 0, blocks = [], win = GRID) {
   const colliders = [...allColliders.filter((c) => isActive(c, level)), ...blocks.map((b, i) => makeCollider(`BLOCK-${i}`, { type: 'rect', ...b }))];
-  const nx = Math.round((GRID.xMax - GRID.xMin) / cell);
-  const nz = Math.round((GRID.zMax - GRID.zMin) / cell);
+  const nx = Math.round((win.xMax - win.xMin) / cell);
+  const nz = Math.round((win.zMax - win.zMin) / cell);
   const free0 = new Uint8Array(nx * nz);   // espai lliure (el cos és un punt)
   const free35 = new Uint8Array(nx * nz);  // posicions possibles del CENTRE del jugador
   for (let j = 0; j < nz; j++) {
-    const z = GRID.zMin + (j + 0.5) * cell;
+    const z = win.zMin + (j + 0.5) * cell;
     for (let i = 0; i < nx; i++) {
-      const x = GRID.xMin + (i + 0.5) * cell;
+      const x = win.xMin + (i + 0.5) * cell;
       let m = Infinity;
       for (const c of colliders) {
         if (x < c.xMin - radius || x > c.xMax + radius || z < c.zMin - radius || z > c.zMax + radius) continue;
@@ -544,14 +547,14 @@ function computeGrid(allColliders, radius, start, cell, level = 0, blocks = []) 
       free35[j * nx + i] = m >= radius ? 1 : 0;
     }
   }
-  const si = Math.floor((start.x - GRID.xMin) / cell);
-  const sj = Math.floor((start.z - GRID.zMin) / cell);
+  const si = Math.floor((start.x - win.xMin) / cell);
+  const sj = Math.floor((start.z - win.zMin) / cell);
   const startIdx = sj * nx + si;
   const r0 = flood(free0, nx, nz, startIdx);
   const r35 = flood(free35, nx, nz, startIdx);
   const index = (x, z) => {
-    const i = Math.floor((x - GRID.xMin) / cell);
-    const j = Math.floor((z - GRID.zMin) / cell);
+    const i = Math.floor((x - win.xMin) / cell);
+    const j = Math.floor((z - win.zMin) / cell);
     return i < 0 || j < 0 || i >= nx || j >= nz ? -1 : j * nx + i;
   };
   return { cell, nx, nz, free0, free35, r0, r35, index, radius, startFree: !!free35[startIdx] };
@@ -761,12 +764,149 @@ function checkAlleys(L, ctx) {
   return out;
 }
 
+
+// ---------------------------------------------------------------------
+// I. CEMENTIRI (Fase D.2): visible però INACCESSIBLE. Valors aprovats de la D.1 v4, perímetre segellat, reixa tancada, cartell, camins i passos.
+// ---------------------------------------------------------------------
+const CEM_WINDOW = { xMin: -16, xMax: 34, zMin: -38, zMax: 30 }; // graella pròpia: poble + cementiri + marge exterior
+const GOLDEN_CEM_COLLISION = {
+  'CW-N': ['r', 3.6, 28.4, -34.4, -34], 'CW-E': ['r', 28, 28.4, -34, -7], 'CW-S3': ['r', 15.4, 28.4, -7, -6.6], 'CW-W': ['r', 3.6, 4, -34, -21],
+  CT2: ['c', 5.5, -7.6, 0.2], SIB: ['r', 20.4, 22.4, -9.2, -8.2], CAL: ['c', 12, -16, 0.9], MAU: ['r', 12.5, 17.5, -34, -29.2],
+  SHED: ['r', 23.5, 26.8, -34, -30.5], PIT: ['r', 19.6, 20.8, -29.4, -27.2], FOSSA: ['r', 19.5, 26.5, -14.4, -11.5], LONE: ['r', 5.4, 7.8, -32.8, -30.4],
+  'ENC-M': ['r', 17, 21.2, -25.6, -21.6], 'ENC-V': ['r', 17, 21.4, -20.2, -17.6],
+  'Z1-a': ['r', 8.5, 10.8, -28, -26], 'Z1-b': ['r', 7.6, 11.05, -24.8, -22.8], 'Z1-c': ['r', 7.28, 10.73, -21.6, -19.6], Z3: ['r', 11.24, 14.69, -13.9, -11.9],
+  T1: ['c', 5.6, -28.4, 0.3], T2: ['c', 9.4, -12.2, 0.3], T4: ['c', 26.2, -24.5, 0.3], T6: ['c', 10.2, -31, 0.3], T7: ['c', 19.4, -31.8, 0.3],
+};
+const CEM_WALL_CHAIN = [['CW-N', 'CW-W'], ['CW-N', 'CW-E'], ['CW-E', 'CW-S3'], ['CW-S3', 'M-E1'], ['CW-S3', 'M-E3'], ['M-E3', 'M-E1'], ['M-E3', 'M-N1'], ['CW-W', 'CH-N-B'], ['M-N1', 'CH-N-FE']];
+// Separació mínima entre els rectangles/cercles (0 = es toquen o se solapen)
+const shapeBox = (c) => (c.type === 'circle' ? { xMin: c.cx - c.radius, xMax: c.cx + c.radius, zMin: c.cz - c.radius, zMax: c.cz + c.radius } : c);
+function shapeGap(a, b) {
+  const A = shapeBox(a); const B = shapeBox(b);
+  return Math.hypot(Math.max(0, A.xMin - B.xMax, B.xMin - A.xMax), Math.max(0, A.zMin - B.zMax, B.zMin - A.zMax));
+}
+function checkCemetery(L, ctx) {
+  const out = [];
+  const bad = (code, m) => out.push(err(code, m));
+  const walls = L.CEM_WALLS || []; const props = L.CEM_PROPS || [];
+  const cols = ctx.fullColliders; const byId = (id) => cols.find((c) => c.id === id);
+  const rectOf = (id) => allShapes(L).find((q) => q.id === id) || partsOf([...walls, ...props].find((q) => q.id === id) || {})[0];
+
+  // 1. IDs únics i dades completes (les parts amb id d'una col·lisió composta, també)
+  const ids = [...allShapes(L).map((q) => q.id), ...walls.map((w) => w.id), ...props.map((q) => q.id)];
+  const dups = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+  if (dups.length) bad('cem-duplicate-id', `IDs repetits entre el poble i el cementiri: ${dups.join(', ')}`);
+  for (const w of walls) {
+    if (!w.collision || w.collision.type !== 'rect' || !w.visual || !w.visual.footprint) { bad('cem-visual-collision', `${w.id}: cal un rectangle de col·lisió i una empremta visual`); continue; }
+    if (!rectEq(w.visual.footprint, w.collision)) bad('cem-visual-collision', `${w.id}: l'empremta visual no coincideix amb la col·lisió`);
+    if (w.collision.enabled === false) bad('cem-wall-disabled', `${w.id}: un mur del perímetre no pot estar desactivat`);
+  }
+  for (const q of props) {
+    const c = q.collision; const v = q.visual || {};
+    if (!c) { bad('cem-visual-collision', `${q.id}: falta la col·lisió`); continue; }
+    if (c.type === 'rect' && v.footprint && !rectEq(v.footprint, c)) bad('cem-visual-collision', `${q.id}: l'empremta visual no coincideix amb la col·lisió`);
+    if (c.type === 'circle' && v.center && (!eq(v.center.x, c.cx) || !eq(v.center.z, c.cz))) bad('cem-visual-collision', `${q.id}: el centre visual no coincideix amb la col·lisió`);
+  }
+
+  // 2. Valors aprovats (D.1 v4)
+  if (!ctx.skipGolden) {
+    const shapes = [...walls, ...props];
+    for (const [id, g] of Object.entries(GOLDEN_CEM_COLLISION)) {
+      const it = shapes.find((q) => q.id === id);
+      if (!it) { bad('cem-golden', `${id}: falta (valor aprovat de la D.1 v4)`); continue; }
+      const c = it.collision; const got = c.type === 'rect' ? ['r', c.xMin, c.xMax, c.zMin, c.zMax] : ['c', c.cx, c.cz, c.radius];
+      if (got.length !== g.length || got[0] !== g[0] || g.slice(1).some((v, i) => !eq(v, got[i + 1]))) bad('cem-golden', `${id}: col·lisió ${JSON.stringify(got)} ≠ aprovada ${JSON.stringify(g)}`);
+    }
+    for (const it of shapes) if (!(it.id in GOLDEN_CEM_COLLISION)) bad('cem-golden', `${it.id}: element no aprovat afegit al cementiri`);
+    for (const w of walls) if (w.visual.height !== 2.8) bad('cem-golden', `${w.id}: alçada 2,8 m`);
+    const ar = L.CEM_AREA;
+    if (!ar || !rectEq(ar.clos, { xMin: 4, xMax: 28, zMin: -34, zMax: -9.4 }) || !rectEq(ar.vestibule, { xMin: 15.4, xMax: 28, zMin: -9.4, zMax: -7 })) bad('cem-golden', 'CEM_AREA: clos x 4→28, z −34→−9,4 i vestíbul x 15,4→28, z −9,4→−7');
+    const gt = L.CEM_GATE; const op = gt && gt.opening;
+    if (!gt || gt.wallId !== 'M-E3' || !op || !eq(op.zMin, -8.4) || !eq(op.zMax, -7) || !eq(op.center, -7.7) || !eq(op.height, 2.6)
+      || !gt.pillarNorth || !eq(gt.pillarNorth.zMin, -9) || !eq(gt.pillarNorth.zMax, -8.4) || !gt.leaf || !eq(gt.leaf.x, 15.2) || !eq(gt.leaf.length, 1.38) || !eq(gt.leaf.hingeZ, -7.05)
+      || !gt.padlock || !eq(gt.padlock.x, 14.93) || !eq(gt.padlock.y, 1.05) || !eq(gt.padlock.z, -7.7)) bad('cem-golden', 'CEM_GATE: obertura z −8,4→−7,0 (centre −7,7, 2,6 m), pilar nord z −9→−8,4, fulla x 15,2 de 1,38 m, frontissa z −7,05, pany (14,93; 1,05; −7,7)');
+    const rg = L.CEM_REAR_GATE;
+    if (!rg || rg.wallId !== 'CW-E' || !eq(rg.zMin, -21) || !eq(rg.zMax, -19)) bad('cem-golden', 'CEM_REAR_GATE: porta posterior al mur CW-E, z −21→−19');
+    const ct = props.find((q) => q.id === 'CT2');
+    if (!ct || ct.type !== 'sign' || !ct.visual || !ct.visual.board || !eq(ct.visual.height, 2.4) || !eq(ct.visual.board.width, 1.3) || !eq(ct.visual.board.height, 0.45) || !eq(ct.visual.board.bottom, 1.75) || !eq(ct.visual.board.top, 2.2)) bad('cem-golden', 'CT2: pal de 2,4 m, taulell 1,3 × 0,45 m a y 1,75→2,2');
+  }
+
+  // 3. Perímetre continu: cada parell de la cadena es toca (sense forats ni solapaments buits)
+  for (const [a, b] of CEM_WALL_CHAIN) {
+    const A = rectOf(a); const B = rectOf(b);
+    if (!A || !B) { bad('cem-gap', `perímetre: falta ${!A ? a : b}`); continue; }
+    const g = shapeGap(A, B);
+    if (g > 1e-9) bad('cem-gap', `perímetre: ${a} i ${b} no es toquen (separació ${g.toFixed(3)} m)`);
+  }
+
+  // 4. Reixa i porta posterior: tancades, sense mecànica D.4
+  const me3 = byId('M-E3');
+  const me3Data = L.WALLS.find((w) => w.id === 'M-E3');
+  if (!me3 || me3.enabled === false || !me3Data || me3Data.collision.enabled === false) bad('cem-gate-solid', 'M-E3: la col·lisió de la reixa ha de ser sòlida i activa');
+  else if (!rectEq(me3, { xMin: 15, xMax: 15.4, zMin: -9, zMax: -7 })) bad('cem-gate-solid', 'M-E3: la col·lisió ha de continuar sent x 15→15,4, z −9→−7');
+  if (byId('M-E3-N')) bad('cem-forbidden', 'M-E3-N (peça de col·lisió de la Fase D.4) no ha d\'existir a la D.2');
+  if (L.CEM_GATE && ('openCollision' in L.CEM_GATE || L.CEM_GATE.state !== 'locked')) bad('cem-forbidden', 'CEM_GATE: res de mecànica D.4 (openCollision) i estat "locked"');
+  if (L.CEM_REAR_GATE && (L.CEM_REAR_GATE.state !== 'closed' || L.CEM_REAR_GATE.opensCollision !== false || L.CEM_REAR_GATE.locked !== true)) bad('cem-rear-gate', 'CEM_REAR_GATE: ha de ser tancada, amb pany i sense obrir la col·lisió');
+  if ((L.KEYS || []).some((k) => /KEY-C/.test(k.id)) || props.some((q) => /crypt|cripta|stair|KEY-C/i.test(q.id + q.type))) bad('cem-forbidden', 'D.2 no pot incloure cripta, escala secreta ni KEY-C');
+  for (const q of props) if (q.collision && q.collision.enabled === false) bad('cem-forbidden', `${q.id}: cap col·lisió del cementiri pot estar desactivada`);
+
+  // 5. Camins: només decals (cap col·lisió) i dins del cementiri
+  const inArea = (x, z) => [L.CEM_AREA.clos, L.CEM_AREA.vestibule].some((r) => inRect(x, z, r));
+  for (const pth of L.CEM_PATHS || []) {
+    if ('collision' in pth) bad('cem-path-collision', `${pth.id}: un camí no pot tenir col·lisió`);
+    if (cols.some((c) => c.id === pth.id)) bad('cem-path-collision', `${pth.id}: el camí apareix com a col·lisionador`);
+    for (const [x, z] of pth.points) if (!inArea(x, z)) bad('cem-path-area', `${pth.id}: el punt (${x}, ${z}) és fora del clos`);
+  }
+
+  // 6. Passos: cap pas < COMFORT_GAP entre elements (excepte els murs a ras: MAU i SHED lliguen amb CW-N)
+  const cem = cols.filter((c) => props.some((q) => q.id === c.id));
+  const wallIds = new Set(walls.map((w) => w.id));
+  const FLUSH = new Set(['MAU|CW-N', 'SHED|CW-N']);
+  const narrow = [];
+  for (let i = 0; i < cols.length; i++) for (let j = i + 1; j < cols.length; j++) {
+    const a = cols[i]; const b = cols[j];
+    if (!cem.includes(a) && !cem.includes(b)) continue;
+    const g = shapeGap(a, b);
+    if (g > COMFORT_GAP - 1e-6) continue;
+    if (FLUSH.has(`${a.id}|${b.id}`) || FLUSH.has(`${b.id}|${a.id}`)) continue;
+    if (g === 0 && wallIds.has(a.id) && wallIds.has(b.id)) continue;
+    narrow.push(`${a.id}–${b.id} (${g.toFixed(2)} m)`);
+  }
+  if (narrow.length) bad('cem-narrow', `passos de menys de ${COMFORT_GAP} m: ${narrow.join(', ')}`);
+  const ct2 = byId('CT2');
+  if (ct2) ctx.info.push(`CT2: separació mínima als obstacles més propers = ${Math.min(...cols.filter((c) => c !== ct2).map((c) => shapeGap(ct2, c))).toFixed(2)} m`);
+
+  // 7. Segellat: graella pròpia amb TOTS els col·lisionadors. El jugador (inici) no ha d'arribar a cap punt del clos ni a l'exterior.
+  const R = L.PLAYER.collisionRadius;
+  const g = computeGrid(cols, R, L.PLAYER.start, ctx.cell, 0, [], CEM_WINDOW);
+  if (!g.startFree) { bad('cem-start', "la posició d'inici no és lliure a la graella del cementiri"); return out; }
+  let touchesBorder = false; let enter = 0; let leak = 0; let enter35 = 0;
+  for (let j = 0; j < g.nz; j++) for (let i = 0; i < g.nx; i++) {
+    const k = j * g.nx + i;
+    if (!g.r0[k] && !g.r35[k]) continue;
+    const x = CEM_WINDOW.xMin + (i + 0.5) * g.cell; const z = CEM_WINDOW.zMin + (j + 0.5) * g.cell;
+    if (g.r0[k]) {
+      if (i === 0 || j === 0 || i === g.nx - 1 || j === g.nz - 1) touchesBorder = true;
+      if (inArea(x, z)) enter += 1;
+      if (x > 15.45 || z < -21.05) leak += 1;
+    }
+    if (g.r35[k] && (inArea(x, z) || x > 15.45 || z < -21.05)) enter35 += 1;
+  }
+  if (touchesBorder) bad('cem-perimeter-open', "el perímetre NO és segellat: des de l'inici s'arriba a la vora de la graella ampliada");
+  if (enter || enter35) bad('cem-enterable', `el jugador pot entrar al cementiri (${enter} cel·les del clos/vestíbul accessibles amb el cos puntual, ${enter35} amb el cos de radi ${R})`);
+  if (leak) bad('cem-leak', `${leak} cel·les accessibles fora del poble (x > 15,45 o z < −21,05)`);
+  if (!touchesBorder && !enter && !leak) ctx.info.push(`perímetre del cementiri segellat (graella ${((CEM_WINDOW.xMax - CEM_WINDOW.xMin) / g.cell) | 0}×${g.nz} cel·les de ${g.cell} m): 0 cel·les del clos accessibles des de l'inici`);
+  return out;
+}
+
 // ---------------------------------------------------------------------
 // EXECUCIÓ DE TOTES LES COMPROVACIONS
 // ---------------------------------------------------------------------
 function runAll(L, { cell, skipGolden = false } = {}) {
   const ctx = { info: [], colliders: null, colliderError: '', grid: null };
-  try { ctx.colliders = buildColliders(L); } catch (e) { ctx.colliderError = e.message; }
+  // Les seccions A–G analitzen el POBLE: sense els col·lisionadors del cementiri (el clos és inaccessible i apareixeria com a racó mort).
+  try { ctx.colliders = buildColliders({ ...L, CEM_WALLS: [], CEM_PROPS: [] }); } catch (e) { ctx.colliderError = e.message; }
+  try { ctx.fullColliders = buildColliders(L); } catch (e) { ctx.fullColliderError = e.message; }
+  ctx.skipGolden = skipGolden; ctx.cell = cell;
   if (ctx.colliders) {
     try {
       ctx.grid = computeGrid(ctx.colliders, L.PLAYER.collisionRadius, L.PLAYER.start, cell);
@@ -792,6 +932,7 @@ function runAll(L, { cell, skipGolden = false } = {}) {
     ['E. Solapaments i passos estrets', checkGeometry, !ctx.grid],
     ['F. Perímetre, accessibilitat i racons morts', checkGrid, !ctx.grid],
     ['G. Amples dels carrerons', checkAlleys, !ctx.colliders],
+    ['I. Cementiri (Fase D.2)', checkCemetery, !ctx.fullColliders],
   ];
   const results = [];
   for (const [title, fn, skip] of sections) {
@@ -882,6 +1023,33 @@ const MUTATIONS = [
     apply: (L) => { const d = L.DOORS.find((q) => q.id === 'D4'); d.state = 'open'; d.enterable = true; d.opensCollision = true; } },
   { name: 'coordenada aprovada alterada (HA 0,1 m cap a l\'est)', expect: 'golden',
     apply: (L) => { const b = L.BUILDINGS.find((q) => q.id === 'HA'); b.visual.footprint.xMax += 0.1; b.collision.find((r) => r.id === 'HA-EN').xMax += 0.1; } },
+  // --- Fase D.2: cementiri ---
+  { name: 'CW-S3 eliminat (el vestíbul queda obert al sud)', expect: 'cem-gap', skipGolden: true,
+    apply: (L) => { L.CEM_WALLS.splice(L.CEM_WALLS.findIndex((w) => w.id === 'CW-S3'), 1); } },
+  { name: 'CW-S3 desalineat 1 cm (xMin 15,41): rendija al perímetre', expect: 'cem-gap', skipGolden: true,
+    apply: (L) => { const w = L.CEM_WALLS.find((q) => q.id === 'CW-S3'); w.collision.xMin = 15.41; w.visual.footprint.xMin = 15.41; } },
+  { name: 'CW-E escurçat 1 m pel nord (forat a la cantonada nord-est)', expect: 'cem-gap', skipGolden: true,
+    apply: (L) => { const w = L.CEM_WALLS.find((q) => q.id === 'CW-E'); w.collision.zMin = -33; w.visual.footprint.zMin = -33; } },
+  { name: 'reixa M-E3 sense col·lisió al tram central (z −8,4→−7): es pot entrar', expect: 'cem-enterable', skipGolden: true,
+    apply: (L) => { const w = L.WALLS.find((q) => q.id === 'M-E3'); w.collision.zMin = -9; w.collision.zMax = -8.4; } },
+  { name: 'M-E3 desactivada (enabled = false)', expect: 'cem-gate-solid', skipGolden: true,
+    apply: (L) => { L.WALLS.find((q) => q.id === 'M-E3').collision.enabled = false; } },
+  { name: 'porta posterior amb la col·lisió oberta (opensCollision)', expect: 'cem-rear-gate',
+    apply: (L) => { L.CEM_REAR_GATE.opensCollision = true; } },
+  { name: 'mecànica D.4 a les dades (CEM_GATE.openCollision)', expect: 'cem-forbidden',
+    apply: (L) => { L.CEM_GATE.openCollision = { id: 'M-E3-N' }; } },
+  { name: 'KEY-C a la llista de claus (no és de la D.2)', expect: 'cem-forbidden',
+    apply: (L) => { L.KEYS.push({ id: 'KEY-C', container: 'SHED' }); } },
+  { name: 'cartell CT2 a x = 7,5 (a la boca del carreró)', expect: 'cem-narrow', skipGolden: true,
+    apply: (L) => { const p = L.CEM_PROPS.find((q) => q.id === 'CT2'); p.collision.cx = 7.5; p.visual.center.x = 7.5; } },
+  { name: 'tomba de Sibil·la desplaçada 0,1 m', expect: 'cem-golden',
+    apply: (L) => { const p = L.CEM_PROPS.find((q) => q.id === 'SIB'); p.collision.xMin += 0.1; p.collision.xMax += 0.1; p.visual.footprint.xMin += 0.1; p.visual.footprint.xMax += 0.1; } },
+  { name: 'tomba nova al vestíbul que deixa un pas de 0,6 m amb SIB', expect: 'cem-narrow', skipGolden: true,
+    apply: (L) => { const r = { type: 'rect', xMin: 23, xMax: 24.5, zMin: -9.2, zMax: -8.2 }; L.CEM_PROPS.push({ id: 'X-TOMB', type: 'graveBlock', visual: { footprint: { ...r }, graves: [] }, collision: { ...r } }); } },
+  { name: 'camí amb col·lisió pròpia', expect: 'cem-path-collision',
+    apply: (L) => { L.CEM_PATHS[0].collision = { type: 'rect', xMin: 16, xMax: 17, zMin: -9, zMax: -8 }; } },
+  { name: 'ID repetit al cementiri (SHED passa a dir-se MAU)', expect: 'cem-duplicate-id',
+    apply: (L) => { L.CEM_PROPS.find((q) => q.id === 'SHED').id = 'MAU'; } },
 ];
 
 // ---------------------------------------------------------------------
