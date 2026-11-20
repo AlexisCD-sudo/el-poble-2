@@ -40,8 +40,10 @@ function makeRng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5)
 // ---------------------------------------------------------------- simulació
 const DT = 1 / 60;
 const res = createMoveResult();
-function makeWorld(def = D1) {
+const MID = 80; // Fase D.3.1: D1 comença TANCADA (0°); la majoria de proves de física parteixen d'una porta mig oberta posada a mà
+function makeWorld(def = D1, startDeg = MID) {
   const door = createSwingDoor(def);
+  if (startDeg !== null && def === D1) door.setAngles(startDeg * DEG, startDeg * DEG);
   return { door, cols: [...staticColliders, ...door.colliders], violations: 0, nudges: 0 };
 }
 // Un fotograma: la porta primer, el jugador després (exactament com updatePlayer a main.js).
@@ -71,11 +73,11 @@ console.log('\nPorta física de D1 (Fase A2)');
 
 // ============================================================ 1. estat inicial
 console.log('\n1. Estat inicial');
-test('1. La porta comença MIG OBERTA (entre el límit tancat i l\'obert) i amb límits definits', () => {
-  const w = makeWorld();
+test('1. (D.3.1) La porta COMENÇA TANCADA (les dues fulles a 0°) i amb límits definits', () => {
+  const w = makeWorld(D1, null);
   const [a, b] = w.door.angles();
-  near(a, SW.initialAngleDeg * DEG); near(b, SW.initialAngleDeg * DEG);
-  expect(a > 30 * DEG && a < 140 * DEG, `l'angle inicial ${deg(a)}° no és "mig obert"`);
+  near(a, 0); near(b, 0); near(SW.initialAngleDeg, 0);
+  expect(w.door.isOpen() === false, 'la porta ha de comptar com a tancada');
   expect(w.door.minAngle === SW.minAngleDeg * DEG && w.door.maxAngle === SW.maxAngleDeg * DEG, 'límits d\'angle');
   expect(w.door.maxAngle <= Math.PI && w.door.minAngle >= 0, 'els límits han de ser dins de 0°–180°');
   expect(w.door.colliders.length === 2 && w.door.colliders.every((c) => c.isSegment), 'una col·lisió (segment) per fulla');
@@ -90,7 +92,7 @@ test('2. Entrar caminant (x = −0,5…0,5) de la plaça al fons: arriba, sense 
     walkTo(w, p, x, -16);
     expect(Math.abs(p.z + 16) < 0.01, `x=${x}: s'ha parat a z=${p.z.toFixed(2)}`);
     expect(w.violations === 0, `x=${x}: ${w.violations} fotogrames dins de la fusta`);
-    near(w.door.leaves[0].angle, SW.initialAngleDeg * DEG); near(w.door.leaves[1].angle, SW.initialAngleDeg * DEG);
+    near(w.door.leaves[0].angle, MID * DEG); near(w.door.leaves[1].angle, MID * DEG);
   }
 });
 test('3. Entrar en diagonal (des de (−2,5; −3) i (2,5; −3) cap al fons) i sortir: mai dins la fusta ni les parets', () => {
@@ -111,17 +113,35 @@ test('4. Sortir de dins cap a la plaça amb la porta mig oberta: lliurement', ()
 
 // ============================================================ 3. empenta
 console.log('\n3. Empènyer les fulles caminant-hi');
-test('5. Porta TANCADA: caminar-hi des de fora la fa girar cap a dins i el jugador passa, sense travessar mai la fusta', () => {
-  for (const x of [-0.6, -0.3, 0, 0.3, 0.6]) {
-    const w = makeWorld(); w.door.setAngles(0, 0); const p = { x, z: -3 };
-    walkTo(w, p, x, -16, { speed: 4 });
-    expect(p.z < -15.9, `x=${x}: no ha pogut entrar (z=${p.z.toFixed(2)}); angles ${angles(w)}`);
+test('5. (D.3.1) Porta TANCADA: caminar-hi des de fora NO l\'obre i el jugador no la travessa mai (cal prémer E)', () => {
+  for (const x of [-0.9, -0.6, -0.3, 0, 0.3, 0.6, 0.9]) {
+    const w = makeWorld(D1, 0); const p = { x, z: -3 };
+    walkTo(w, p, x, -16, { speed: 4 }); idle(w, p, 1);
+    expect(p.z > -9.6, `x=${x}: ha travessat la porta tancada (z=${p.z.toFixed(2)})`);
     expect(w.violations === 0, `x=${x}: ${w.violations} fotogrames dins de la fusta`);
-    expect(w.door.leaves.some((l) => l.angle > 20 * DEG), `x=${x}: les fulles no s'han obert (${angles(w)})`);
+    expect(w.door.leaves.every((l) => l.angle === 0), `x=${x}: les fulles s'han mogut (${angles(w)})`);
   }
 });
+test('5b. (D.3.1) Porta tancada: 400 caminants aleatoris (diagonals, 2 velocitats) des de fora no travessen mai les fulles', () => {
+  const rng = makeRng(31); let crossed = 0;
+  for (let k = 0; k < 400; k++) {
+    const w = makeWorld(D1, 0); const p = { x: (rng() - 0.5) * 2.2, z: -3 - rng() * 4 };
+    walkTo(w, p, (rng() - 0.5) * 3, -17, { speed: 2 + rng() * 4 }); idle(w, p, 0.5);
+    if (p.z < -9.6) crossed++;
+    expect(w.violations === 0, `caminant ${k}: dins de la fusta`);
+  }
+  expect(crossed === 0, `${crossed} caminants han travessat la porta tancada`);
+});
+test('5c. (D.3.1) Amb E la porta tancada s\'obre i el jugador entra; si s\'empeny una fulla ja entreoberta (3°) encara cedeix', () => {
+  const w = makeWorld(D1, 0); const p = { x: 0, z: -7 };
+  expect(w.door.interact(p.x, p.z) === 'opening', 'E tancada ha d\'obrir');
+  idle(w, p, 4); expect(w.door.leaves.every((l) => Math.abs(l.angle - SW.openTargetDeg * DEG) < 1e-6), 'no ha arribat a l\'angle objectiu');
+  walkTo(w, p, 0, -16); expect(p.z < -15.9 && w.violations === 0, `z=${p.z.toFixed(2)} violacions ${w.violations}`);
+  const w2 = makeWorld(D1, 3); const q = { x: 0, z: -3 }; walkTo(w2, q, 0, -16);
+  expect(q.z < -15.9 && w2.violations === 0, 'una fulla a 3° encara s\'ha de poder empènyer');
+});
 test('6. Les fulles s\'obren PROGRESSIVAMENT (no d\'un cop) i el jugador queda alentit contra la fusta', () => {
-  const w = makeWorld(); w.door.setAngles(0, 0); const p = { x: 0, z: -8 };
+  const w = makeWorld(D1, 3); const p = { x: 0, z: -8 };
   let prev = 0; let maxJump = 0; let contact = 0;
   for (let i = 0; i < 240; i++) {
     const r = frame(w, p, 0, -4 * DT);
@@ -133,7 +153,7 @@ test('6. Les fulles s\'obren PROGRESSIVAMENT (no d\'un cop) i el jugador queda a
   expect(w.violations === 0, 'penetració');
 });
 test('7. Empènyer només un costat (x = 0,7, rasant la fulla est) mou aquesta fulla i el jugador passa sense travessar-la', () => {
-  const w = makeWorld(); w.door.setAngles(0, 0); const p = { x: 0.72, z: -3 };
+  const w = makeWorld(D1, 3); const p = { x: 0.72, z: -3 };
   walkTo(w, p, 0.72, -16);
   expect(p.z < -15.9 && w.violations === 0, `z=${p.z.toFixed(2)} violacions ${w.violations}`);
   expect(w.door.leaves[1].angle > w.door.leaves[0].angle - 1e-9, `la fulla est (${deg(w.door.leaves[1].angle)}°) hauria d'obrir-se almenys tant com l'oest (${deg(w.door.leaves[0].angle)}°)`);

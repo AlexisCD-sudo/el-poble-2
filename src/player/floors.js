@@ -5,6 +5,9 @@
 //
 // El jugador és un cercle en el pla XZ (collisions.js). L'alçada dels peus depèn de la posició i del NIVELL:
 //   nivell 0 = planta baixa (y = 0)      nivell 1 = pis superior (y = floorY del forjat)
+//   nivell −1 = cripta (Fase D.3; només si `levelSplitDown` és definit): per sota d'aquesta alçada dels peus.
+//   Les escales poden baixar (`floorY` negatiu, `rise` = alçada inicial 0): la mateixa rampa que passa per les arestes dels graons.
+//   Els forjats (`slabs`) tenen `level` (per defecte 1); un jugador només camina sobre els del seu nivell.
 // Dins del rectangle d'una escala el terra puja linealment (una rampa que passa per les arestes dels graons);
 // fora, el terra del nivell. El nivell nou surt de l'alçada: a partir de `levelSplit` el jugador és al nivell 1.
 // Això permet que el mateix pla XZ tingui dues estances superposades sense que res no es travessi: els
@@ -17,6 +20,7 @@ export function createFloors(def) {
   const stairs = def.stairs || [];
   const slabs = def.slabs || [];
   const split = def.levelSplit;
+  const splitDown = def.levelSplitDown; // undefined = no hi ha nivell −1 (comportament de les fases anteriors)
 
   // Alçada del terra de l'escala a la posició (x, z) (només si és dins del seu rectangle).
   function stairHeight(st, x, z) {
@@ -27,6 +31,7 @@ export function createFloors(def) {
 
   const api = {
     levelSplit: split,
+    levelSplitDown: splitDown,
     // Escala sota (x, z) o null.
     stairAt(x, z) {
       for (const st of stairs) if (inRect(x, z, st.rect)) return st;
@@ -35,15 +40,13 @@ export function createFloors(def) {
     // Alçada dels peus (m) a (x, z) per a un jugador del nivell `level`.
     heightAt(x, z, level) {
       for (const st of stairs) if (inRect(x, z, st.rect)) return stairHeight(st, x, z);
-      if (level === 1) {
-        for (const sl of slabs) {
-          if (inRect(x, z, sl.rect) && !sl.holes.some((h) => inRect(x, z, h))) return sl.y;
-        }
+      for (const sl of slabs) {
+        if ((sl.level === undefined ? 1 : sl.level) === level && inRect(x, z, sl.rect) && !sl.holes.some((h) => inRect(x, z, h))) return sl.y;
       }
       return 0;
     },
     // Nivell que correspon a una alçada dels peus.
-    levelFor(y) { return y > split ? 1 : 0; },
+    levelFor(y) { return y > split ? 1 : (splitDown !== undefined && y < splitDown ? -1 : 0); },
     // Un pas de moviment: retorna { y, level } per a la nova posició (x, z) venint del nivell `level`.
     resolve(x, z, level) {
       const y = api.heightAt(x, z, level);

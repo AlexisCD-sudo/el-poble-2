@@ -13,8 +13,10 @@ let passed = 0; let failed = 0;
 function test(name, fn) { try { fn(); passed++; console.log(`  ✓ ${name}`); } catch (e) { failed++; console.log(`  ✗ ${name}\n      ${e.message}`); } }
 const expect = (c, m) => { if (!c) throw new Error(m); };
 const R = PLAYER.collisionRadius;
-const colliders = buildColliders(LAYOUT);
-const baseColliders = buildColliders({ ...LAYOUT, CEM_WALLS: [], CEM_PROPS: [] });
+// Fase D.3: la cripta (CRYPT_*) té les seves pròpies proves (test-fase-d3.js); aquí es comparen només el poble i el cementiri.
+const NO_CRYPT = { CRYPT_WALLS: [], CRYPT_PROPS: [] };
+const colliders = buildColliders({ ...LAYOUT, ...NO_CRYPT });
+const baseColliders = buildColliders({ ...LAYOUT, ...NO_CRYPT, CEM_WALLS: [], CEM_PROPS: [] });
 const byId = (id) => colliders.find((c) => c.id === id);
 const inRect = (x, z, r) => x >= r.xMin && x <= r.xMax && z >= r.zMin && z <= r.zMax;
 const inCemetery = (x, z) => inRect(x, z, CEM_AREA.clos) || inRect(x, z, CEM_AREA.vestibule);
@@ -111,7 +113,7 @@ test('Reixa i porta no tenen cap mecànica D.4: sense openCollision, sense KEY-C
   expect(!('openCollision' in CEM_GATE) && CEM_GATE.state === 'locked', 'CEM_GATE amb mecànica D.4');
   expect(!KEYS.some((k) => /KEY-C/.test(k.id)), 'KEY-C afegida');
   expect(!CEM_PROPS.some((p) => /crypt|cripta|stair|tunnel|tunel|KEY-C/i.test(p.id + p.type)), 'element prohibit al cementiri');
-  expect(!('CEM_CRYPT' in LAYOUT) && !('CRYPT' in LAYOUT), 'dades de cripta');
+  expect(!('CEM_CRYPT' in LAYOUT), 'dades de cripta dins del cementiri'); // D.3: la cripta existeix (CRYPT), però el cementiri no en depèn
   expect(LAYOUT.DOORS.length === 4, 'hi ha portes noves');
 });
 
@@ -219,8 +221,8 @@ console.log('\n6. Geometria generada (buildVillage) i rendiment');
 const scene = new THREE.Scene(); const v = buildVillage(scene); const root = scene.children.find((c) => c.name === 'Village') || scene;
 const find = (name) => { let r = null; scene.traverse((o) => { if (o.name === name && !r) r = o; }); return r; };
 const sceneWith = new THREE.Scene(); const vNo = buildVillage(sceneWith, { cemetery: false });
-test('Triangles: el poble sol continua en 41.276 (idèntic a abans de la D.2); amb el cementiri < 60.000 i el cementiri ≤ 20.000', () => {
-  expect(vNo.stats.triangles === 41276 && vNo.stats.meshes === 149, `poble sol: ${vNo.stats.triangles} triangles, ${vNo.stats.meshes} malles`);
+test('Triangles: el poble sol té 41.060 (base D.3.1: sense 3 cadires, amb llit i cartell nous); amb el cementiri < 60.000 i el cementiri ≤ 20.000', () => {
+  expect(vNo.stats.triangles === 41060 && vNo.stats.meshes === 150, `poble sol: ${vNo.stats.triangles} triangles, ${vNo.stats.meshes} malles`);
   expect(v.stats.triangles < 60000, `${v.stats.triangles} triangles`);
   expect(v.stats.cemetery.triangles <= 20000 && v.stats.cemetery.meshes <= 40, `cementiri: ${JSON.stringify(v.stats.cemetery)}`);
   console.log(`      (total ${v.stats.triangles} triangles, ${v.stats.meshes} malles; cementiri ${v.stats.cemetery.triangles} triangles, ${v.stats.cemetery.meshes} malles)`);
@@ -267,12 +269,12 @@ test('Terra del clos (D.2.1): una malla plana a y = 0,02 que cobreix el 100 % de
   expect(!soil.material.transparent && soil.material.isMeshLambertMaterial, 'el terra ha de ser Lambert opac');
   expect(tris.length <= 900, `${tris.length} triangles de terra`);
 });
-test('Cartell: un únic quad (2 triangles) mirant al sud (cap a la plaça), a y 1,75→2,2, davant del pal (5,5; −7,6)', () => {
+test('Cartell: un únic quad (2 triangles) mirant al sud (cap a la plaça), a y 1,75→2,2, enganxat a la paret M-N1 (z = −9, D.3.1)', () => {
   const props = find('CemeteryProps'); const quads = props.children.filter((m) => m.name === 'CemeteryProps-sign');
   expect(quads.length === 1 && quads[0].geometry.getAttribute('position').count === 6, `${quads.length} malles de cartell`);
   const g = quads[0].geometry; const p = g.getAttribute('position'); const n = g.getAttribute('normal'); const bb = new THREE.Box3().setFromBufferAttribute(p);
   for (let i = 0; i < 6; i++) expect(n.getZ(i) > 0.99, `normal z ${n.getZ(i)}`);
-  expect(bb.min.y >= 1.72 && bb.max.y <= 2.23 && bb.min.x > 4.8 && bb.max.x < 6.2 && bb.min.z > -7.6 && bb.max.z < -7.3, `capsa ${bb.min.toArray()} ${bb.max.toArray()}`);
+  expect(bb.min.y >= 1.72 && bb.max.y <= 2.23 && bb.min.x > 5.7 && bb.max.x < 7.3 && bb.min.z > -9.0 && bb.max.z < -8.9, `capsa ${bb.min.toArray()} ${bb.max.toArray()}`);
 });
 test('Tot el cementiri queda dins de la seva zona (x 3,4→29, z −34,8→−6,3); res no sobresurt cap al poble (llevat del cartell i de les peces de la reixa)', () => {
   const cem = find('Cemetery'); const box = new THREE.Box3();

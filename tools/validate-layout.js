@@ -42,6 +42,8 @@ const pickLayout = (L) => ({
   LIGHTS: L.LIGHTS, STAIRS: L.STAIRS, FLOORS: L.FLOORS, PLAYER: L.PLAYER, PLAZA: L.PLAZA, LAYOUT_META: L.LAYOUT_META,
   // Fase D.2: cementiri (les seccions A–G continuen analitzant només el poble; la secció I analitza el cementiri)
   CEM_AREA: L.CEM_AREA, CEM_WALLS: L.CEM_WALLS, CEM_GATE: L.CEM_GATE, CEM_REAR_GATE: L.CEM_REAR_GATE, CEM_PROPS: L.CEM_PROPS, CEM_PATHS: L.CEM_PATHS,
+  // Fase D.3: cripta secreta (la secció J). Les seccions A–I NO la veuen (es posa a zero a runAll).
+  CRYPT: L.CRYPT, CRYPT_WALLS: L.CRYPT_WALLS, CRYPT_PROPS: L.CRYPT_PROPS, CRYPT_FLOORS: L.CRYPT_FLOORS,
 });
 const solidsOf = (L) => [...L.BUILDINGS, ...L.WALLS];
 // `collision` d'un objecte: una forma o (església, Fase A) una llista de formes amb `id`.
@@ -68,7 +70,7 @@ const GOLDEN_COLLISION = {
   'HC-STR': ['r', 5.32, 5.42, 10.9, 13.3], 'HC-RAIL': ['r', 5.32, 5.42, 13.3, 14.6],
   'B-TAB': ['r', 10.6, 11.6, -6.6, -5.95], 'B-SHELF': ['r', 9.85, 11.6, -1.8, -1.4], 'A-SHELF': ['r', -8.65, -7.4, -3.8, -3.4],
   'C-COFFER': ['r', 2.4, 2.9, 9.4, 10.4], 'C-CAB1': ['r', 2.9, 3.9, 9.4, 9.95], 'C-SHELF': ['r', 3.9, 5.32, 9.4, 9.8], 'C-STORE': ['r', 5.32, 6.6, 9.4, 10.9],
-  'C-TABLE': ['r', 3.4, 4.4, 11.3, 12.7], 'C-CH1': ['r', 3.45, 3.85, 10.85, 11.3], 'C-CH2': ['r', 3.95, 4.35, 10.85, 11.3], 'C-CH3': ['r', 3.45, 3.85, 12.7, 13.15], 'C-CH4': ['r', 3.95, 4.35, 12.7, 13.15],
+  'C-TABLE': ['r', 3.4, 4.4, 11.3, 12.7], 'C-CH1': ['r', 3.45, 3.85, 10.85, 11.3],
   'C-DRS': ['r', 2.4, 3.6, 14.1, 14.6], 'C-CAB2': ['r', 3.6, 4.3, 14.1, 14.6],
   'C-U-BED': ['r', 2.4, 3.9, 12.65, 14.6], 'C-U-NIGHT': ['r', 3.9, 4.4, 14, 14.6], 'C-U-WARD': ['r', 4.4, 5.32, 14, 14.6], 'C-U-DRS': ['r', 2.4, 3.6, 9.4, 9.95],
   // Mobles (Fase B): 8 bancs, altar i mobles de les cases A i B.
@@ -95,7 +97,7 @@ const GOLDEN_COLLISION = {
 // la taula (1,0 m) queda entre la paret oest i l'escala (només 2,92 m de sala): 1,0 m de pas = 0,3 m de marge al cos del jugador; l'escala fa 1,18 m d'ample.
 const ALLOWED_NARROW = [['HC-WN', 'C-TABLE', 1.0], ['HC-WS', 'C-TABLE', 1.0], ['C-TABLE', 'HC-STR', 0.9], ['HC-E', 'HC-STR', 1.18]];
 const GOLDEN_PUZZLE = { door: { x: 0, z: -20.4, width: 1.4, height: 2.6 }, slotX: [-0.95, 0.95], keys: { 'KEY-A': 'A-DRS', 'KEY-B': 'B-CHS' } };
-const GOLDEN_SWING = { hingeX: 1.17, hingeZ: -9.705, leafLength: 1.16, minAngleDeg: 0, maxAngleDeg: 170, initialAngleDeg: 80 };
+const GOLDEN_SWING = { hingeX: 1.17, hingeZ: -9.705, leafLength: 1.16, minAngleDeg: 0, maxAngleDeg: 170, initialAngleDeg: 0 };
 const GOLDEN_DOORS = { D1: [0, -9, 'south'], D2: [-7, -6, 'east'], D3: [7, -4, 'west'], D4: [2, 12, 'west'] };
 const GOLDEN_LIGHTS = { F1: [-2, 21, -1.6, 21], F2: [2, 13.5, 1.6, 13.5], F3: [2.6, -9, 2.6, -8.6], F4: [7, -1.5, 6.6, -1.5], F5: [-7, -4, -6.6, -4] };
 
@@ -331,7 +333,7 @@ function checkDoorSwing(L, ctx) {
     if (bad.length) { f('door-swing-range', `${d.id}.swing: falten números (${bad.join(', ')})`); continue; }
     if (!(sw.minAngleDeg >= 0 && sw.maxAngleDeg <= 180 && sw.minAngleDeg <= sw.maxAngleDeg)) f('door-swing-range', `${d.id}: els angles han d'estar dins de 0°–180° i mín ≤ màx (hi ha ${sw.minAngleDeg}°…${sw.maxAngleDeg}°)`);
     if (!(sw.openTargetDeg >= sw.minAngleDeg && sw.openTargetDeg <= sw.maxAngleDeg)) f('door-swing-range', `${d.id}: l'angle d'obertura amb E (${sw.openTargetDeg}°) és fora dels límits`);
-    if (!(sw.initialAngleDeg > sw.minAngleDeg + 10 && sw.initialAngleDeg < sw.maxAngleDeg - 10)) f('door-swing-initial', `${d.id}: la porta ha de començar MIG OBERTA (inicial ${sw.initialAngleDeg}°, entre ${sw.minAngleDeg}° i ${sw.maxAngleDeg}°)`);
+    if (sw.initialAngleDeg !== 0 || sw.minAngleDeg !== 0) f('door-swing-initial', `${d.id}: la porta ha de començar TANCADA (Fase D.3.1): inicial ${sw.initialAngleDeg}° i mínim ${sw.minAngleDeg}° han de ser 0°`);
     if (!(sw.maxPushSpeed > 0 && sw.smoothTime > 0 && sw.maxSpeed > 0 && sw.interactDistance > 0 && sw.leafThickness > 0 && sw.collisionHalfThickness > 0)) f('door-swing-range', `${d.id}: velocitats, temps, distància i gruixos han de ser positius`);
     // Frontisses i tancament: fora del pas, i les dues fulles tancades han de cobrir-lo sense solapar-se.
     if (!(sw.hingeX >= d.width / 2 - TOL)) f('door-swing-hinge', `${d.id}: la frontissa (x ±${sw.hingeX}) ha de ser fora del pas (±${d.width / 2})`);
@@ -362,7 +364,7 @@ function checkDoorSwing(L, ctx) {
       for (let z = d.center.z + 1; z >= sw.hingeZ - 3; z -= 0.05) if (!isPositionFree(d.center.x, z, R, all)) return z;
       return null;
     };
-    for (const [label, ang] of [['inicial', sw.initialAngleDeg], ['oberta amb E', sw.openTargetDeg]]) {
+    for (const [label, ang] of [['oberta amb E', sw.openTargetDeg]]) {
       const z = ctx.colliders ? pathFree(ang) : null;
       if (z !== null) f('door-swing-passage', `${d.id}: amb la porta ${label} (${ang}°) el jugador (radi ${R}) no pot passar pel centre (bloquejat a z = ${z.toFixed(2)})`);
     }
@@ -898,14 +900,104 @@ function checkCemetery(L, ctx) {
   return out;
 }
 
+
+// ---------------------------------------------------------------------
+// J. CRIPTA SECRETA (Fase D.3): dades, accés condicional per SD, sales, passos, escala i puzle
+// ---------------------------------------------------------------------
+const GOLDEN_CRYPT = {
+  'CR-SH-W': [-1.3, -0.9, -26.7, -21], 'CR-SH-E': [0.9, 1.3, -26.7, -21], 'CR-BOX-N': [-1.3, 1.3, -27.1, -26.7],
+  'CR-ANT-S-W': [-2.6, -1.3, -26.7, -26.3], 'CR-ANT-S-E': [1.3, 2.6, -26.7, -26.3], 'CR-ANT-W': [-2.6, -2.2, -30, -26.7], 'CR-ANT-E': [2.2, 2.6, -30, -26.7],
+  'CR-DIV-W': [-6.4, -0.8, -30.4, -30], 'CR-DIV-E': [0.8, 3.0, -30.4, -30], 'CR-SALA-E': [2.6, 3.0, -36, -30.4], 'CR-N': [-10.8, 3.0, -36, -35.6],
+  'CR-ARC-S': [-6.4, -6.0, -33, -30.4], 'CR-ARC-N': [-6.4, -6.0, -35.6, -34.6], 'CR-G-W': [-10.8, -10.4, -35.6, -30.6], 'CR-G-S': [-10.8, -6.4, -31, -30.6],
+  'CR-ALT': [-0.9, 0.9, -35.6, -34.8], 'CR-SARC': [-8.9, -7.9, -34.4, -32.2], 'C-U-CLUE-TABLE': [3.8, 4.6, 9.4, 9.95],
+};
+function checkCrypt(L, ctx) {
+  const out = []; const bad = (code, m) => out.push(err(code, m));
+  const C = L.CRYPT; const walls = L.CRYPT_WALLS; const props = L.CRYPT_PROPS; const fl = L.CRYPT_FLOORS; const R = L.PLAYER.collisionRadius;
+  const boxOf = (q) => shapeBox(q.collision);
+  // 1. IDs únics (amb tot el layout) i visual = col·lisió
+  const all = [...allShapes(L).map((q) => q.id), ...L.CEM_WALLS.map((w) => w.id), ...L.CEM_PROPS.map((q) => q.id), ...walls.map((w) => w.id), ...props.map((q) => q.id)];
+  const dups = [...new Set(all.filter((id, i) => all.indexOf(id) !== i))]; if (dups.length) bad('crypt-duplicate-id', `IDs repetits: ${dups.join(', ')}`);
+  for (const w of walls) if (w.visual.draw !== false && !rectEq(w.visual.footprint, w.collision)) bad('crypt-visual-collision', `${w.id}: l'empremta visual no coincideix amb la col·lisió`);
+  // 2. Valors aprovats
+  for (const [id, [x0, x1, z0, z1]] of Object.entries(GOLDEN_CRYPT)) {
+    const q = [...walls, ...props].find((e) => e.id === id); if (!q) { bad('crypt-golden', `${id}: no existeix`); continue; }
+    if (!rectEq(q.collision, { xMin: x0, xMax: x1, zMin: z0, zMax: z1 })) bad('crypt-golden', `${id}: ha de ser x ${x0}→${x1}, z ${z0}→${z1}`);
+  }
+  const pil = props.filter((q) => q.type === 'pillar'); if (pil.length > 2 || pil.some((q) => q.collision.radius !== 0.3)) bad('crypt-golden', 'com a molt 2 pilars de radi 0,3');
+  // 3. Límits: res a x > 3,0; el nivell −1 no passa de z −26,3 (la boca de l'escala és la cara sud de l'antecambra)
+  for (const q of [...walls.filter((w) => w.level === -1), ...props.filter((p) => p.level === -1)]) {
+    const b = boxOf(q); if (b.xMax > C.bounds.xMax + TOL || b.xMin < C.bounds.xMin - TOL || b.zMin < C.bounds.zMin - TOL || b.zMax > -26.3 + TOL) bad('crypt-bounds', `${q.id}: fora del volum reservat (x ≤ 3,0; z −36→−26,3)`);
+  }
+  // 4. Accés condicional (nivell 0): amb SD tancada el pou és inaccessible; amb SD oberta, accessible
+  const cols = ctx.cryptColliders; const orig = cols.find((c) => c.id === C.sdSplit.original); const pcs = C.sdSplit.pieces.map((id) => cols.find((c) => c.id === id));
+  if (!orig || pcs.some((p) => !p)) { bad('crypt-sd-access', 'falta CH-N-B o alguna de les seves peces'); return out; }
+  const piA = boxOf(walls.find((w) => w.id === C.sdSplit.pieces[0])); const piB = boxOf(walls.find((w) => w.id === C.sdSplit.pieces[1]));
+  const bOrig = L.BUILDINGS.flatMap(partsOf).find((q) => q.id === C.sdSplit.original);
+  const gapW = piB.xMin - piA.xMax;
+  if (!bOrig || !eq(piA.xMin, bOrig.xMin) || !eq(piB.xMax, bOrig.xMax) || !eq(piA.zMin, bOrig.zMin) || !eq(piB.zMax, bOrig.zMax) || !eq(piA.zMax, bOrig.zMax) || !eq(piB.zMin, bOrig.zMin) || !eq(piA.xMax, L.SECRET_DOOR.center.x - L.SECRET_DOOR.width / 2) || !eq(piB.xMin, L.SECRET_DOOR.center.x + L.SECRET_DOOR.width / 2)) {
+    bad('crypt-sd-access', `les peces de CH-N-B han de cobrir exactament CH-N-B deixant el pas de SD (${L.SECRET_DOOR.width} m, centrat a x ${L.SECRET_DOOR.center.x}); pas actual ${gapW.toFixed(2)} m`);
+  }
+  const win0 = { xMin: -6, xMax: 6, zMin: -30, zMax: -8 }; const nave = { x: 0, z: -15 };
+  const state = (open) => { orig.enabled = !open; for (const p of pcs) p.enabled = open; };
+  const count = (g, r) => { let n = 0; for (let j = 0; j < g.nz; j++) for (let i = 0; i < g.nx; i++) if (g.r35[j * g.nx + i]) { const x = win0.xMin + (i + 0.5) * g.cell; const z = win0.zMin + (j + 0.5) * g.cell; if (inRect(x, z, r)) n++; } return n; };
+  state(false); const gc = computeGrid(cols, R, nave, ctx.cell, 0, [], win0);
+  const sealed = count(gc, C.shaft.inner); if (sealed > 0) bad('crypt-sealed', `amb SD tancada el jugador arriba al pou de l'escala (${sealed} cel·les)`);
+  const sealedLand = count(gc, C.shaft.landing); if (sealedLand > 0) bad('crypt-sealed', `amb SD tancada el jugador arriba al replà (${sealedLand} cel·les)`);
+  state(true); const go = computeGrid(cols, R, nave, ctx.cell, 0, [], win0);
+  const landing = count(go, C.shaft.landing); if (landing === 0) bad('crypt-sd-access', 'amb SD oberta el jugador no arriba al replà del pou');
+  if (!go.r35[go.index(0, -20.7)]) bad('crypt-sd-access', 'amb SD oberta el cos del jugador no passa pel pas de la paret (x 0, z −20,7)');
+  state(false);
+  // 5. Nivell −1 (SD oberta): totes les sales arribables, sense racons morts, passos ≥ COMFORT_GAP
+  state(true);
+  const win1 = { xMin: -12, xMax: 4, zMin: -37, zMax: -26 }; const g1 = computeGrid(cols, R, { x: 0, z: -28.5 }, ctx.cell, -1, [], win1);
+  const reach = (x, z) => { const k = g1.index(x, z); return k >= 0 && g1.r35[k]; };
+  for (const [x, z, what] of [[0, -28.5, 'antecambra'], [0, -30.2, 'pas ANT→SALA'], [0, -33, 'gran sala'], [-4.5, -33.8, 'gran sala (oest)'], [1.8, -31.5, 'gran sala (est)'], [-6.2, -33.8, 'arc'], [-8.4, -31.6, 'sala del guardià (sud del sarcòfag)'], [-7.2, -33.3, 'sala del guardià (davant del sarcòfag)'], [0, -34.2, 'davant de l\'altar']]) {
+    if (!reach(x, z)) bad('crypt-unreachable', `${what} (${x}, ${z}) no és accessible al nivell −1`);
+  }
+  const rooms = [C.rooms.ANT.rect, C.rooms.SALA.rect, C.rooms.GUARDIA.rect]; let pockets = 0;
+  for (let j = 0; j < g1.nz; j++) for (let i = 0; i < g1.nx; i++) { const k = j * g1.nx + i; const x = win1.xMin + (i + 0.5) * g1.cell; const z = win1.zMin + (j + 0.5) * g1.cell; if (g1.free35[k] && !g1.r35[k] && rooms.some((r) => inRect(x, z, r))) pockets++; }
+  if (pockets) bad('crypt-pocket', `${pockets} cel·les lliures dins de les sales que el jugador no pot assolir (racons morts)`);
+  state(false);
+  const l1 = [...walls.filter((w) => w.level === -1), ...props.filter((p) => p.level === -1)]; const narrow = [];
+  // Passos: cada atrezzo (altar, pilars, sarcòfag) amb tot el que l'envolta, i els dos passos oberts del mur (ANT→SALA i arc). Entre parets no té sentit (la terra massissa les separa).
+  const openingPairs = [['CR-DIV-W', 'CR-DIV-E'], ['CR-ARC-S', 'CR-ARC-N']];
+  for (let i = 0; i < l1.length; i++) for (let j = i + 1; j < l1.length; j++) {
+    const isProp = props.includes(l1[i]) || props.includes(l1[j]); const isOpening = openingPairs.some(([x, y]) => (l1[i].id === x && l1[j].id === y) || (l1[i].id === y && l1[j].id === x));
+    if (!isProp && !isOpening) continue;
+    const g = shapeGap(l1[i].collision, l1[j].collision); if (g > 1e-9 && g < COMFORT_GAP_CRYPT - 1e-9) narrow.push(`${l1[i].id}–${l1[j].id} ${g.toFixed(2)} m`);
+  }
+  if (narrow.length) bad('crypt-gap', `passos < ${COMFORT_GAP_CRYPT} m: ${narrow.join('; ')}`);
+  // 6. Escala
+  const st = fl.stairs[0]; const sp = C.stair;
+  if (st.treads !== 16 || !eq(st.riser, 0.2) || !eq(st.tread, 0.28) || !eq(st.treads * st.riser, -st.floorY) || !eq(st.treads * st.tread, st.run) || sp.steps !== st.treads || !eq(sp.rise, st.riser) || !eq(sp.tread, st.tread)) bad('crypt-stair', 'escala: 16 graons de 0,2 × 0,28 m que baixen 3,2 m (run 4,48 m) i coherents amb CRYPT.stair');
+  if (!(st.rect.zMax - st.rect.zMin >= st.run - TOL) || st.start !== C.stair.topZ || st.floorY !== C.floorY || st.dir !== -1) bad('crypt-stair', 'escala: ha de començar al replà (z −22,2) i baixar cap al nord fins a y −3,2');
+  // 7. Puzle, sarcòfag i KEY-C
+  const P = C.puzzle;
+  if (P.solution.join() !== C.clue.order.join()) bad('crypt-puzzle', 'la solució del puzle ha de coincidir amb l\'ordre de la pista de la caixa (campana, lluna, creu)');
+  if (P.solution.join() !== 'bell,moon,cross') bad('crypt-puzzle', 'solució exacta: CAMPANA → LLUNA → CREU');
+  if (P.start.join() === P.solution.join() || new Set(P.symbols).size !== P.symbols.length || P.discX.length !== 3 || P.solution.some((s) => !P.symbols.includes(s))) bad('crypt-puzzle', 'puzle: símbols únics, 3 discs i estat inicial diferent de la solució');
+  const alt = boxOf(props.find((q) => q.id === 'CR-ALT'));
+  if (!(P.interact.standZ >= alt.zMax) || P.interact.range > 1.8 || P.discX.some((x) => x < alt.xMin || x > alt.xMax)) bad('crypt-puzzle', 'l\'altar s\'usa DAVANT (standZ ≥ cara de l\'altar), a ≤ 1,8 m i amb els discs sobre l\'altar');
+  const sc = boxOf(props.find((q) => q.id === 'CR-SARC')); const k = C.keyC;
+  if (k.pos.x < sc.xMin || k.pos.x > sc.xMax || k.pos.z < sc.zMin || k.pos.z > sc.zMax) bad('crypt-key', 'KEY-C ha de ser dins del sarcòfag');
+  if ((L.KEYS || []).some((q) => q.id === 'KEY-C') || L.KEYS.length !== 2) bad('crypt-key', 'KEY-C no pot ser a KEYS (KEY-A/KEY-B no es toquen)');
+  if (C.clue.table !== 'C-U-CLUE-TABLE' || !inRect(C.clue.center.x, C.clue.center.z, boxOf(props.find((q) => q.id === 'C-U-CLUE-TABLE')))) bad('crypt-clue', 'la caixa-pista ha de ser damunt la seva tauleta (casa C, pis superior)');
+  ctx.info.push(`SD tancada: 0 cel·les al pou; oberta: ${landing} al replà; nivell −1 sense racons morts; ${l1.length} obstacles amb passos ≥ ${COMFORT_GAP_CRYPT} m`);
+  return out;
+}
+const COMFORT_GAP_CRYPT = 1.2;
+
 // ---------------------------------------------------------------------
 // EXECUCIÓ DE TOTES LES COMPROVACIONS
 // ---------------------------------------------------------------------
 function runAll(L, { cell, skipGolden = false } = {}) {
   const ctx = { info: [], colliders: null, colliderError: '', grid: null };
   // Les seccions A–G analitzen el POBLE: sense els col·lisionadors del cementiri (el clos és inaccessible i apareixeria com a racó mort).
-  try { ctx.colliders = buildColliders({ ...L, CEM_WALLS: [], CEM_PROPS: [] }); } catch (e) { ctx.colliderError = e.message; }
-  try { ctx.fullColliders = buildColliders(L); } catch (e) { ctx.fullColliderError = e.message; }
+  const NO_CRYPT = { CRYPT_WALLS: [], CRYPT_PROPS: [] };
+  try { ctx.colliders = buildColliders({ ...L, ...NO_CRYPT, CEM_WALLS: [], CEM_PROPS: [] }); } catch (e) { ctx.colliderError = e.message; }
+  try { ctx.fullColliders = buildColliders({ ...L, ...NO_CRYPT }); } catch (e) { ctx.fullColliderError = e.message; }
+  try { ctx.cryptColliders = buildColliders(L); } catch (e) { ctx.cryptColliderError = e.message; }
   ctx.skipGolden = skipGolden; ctx.cell = cell;
   if (ctx.colliders) {
     try {
@@ -933,6 +1025,7 @@ function runAll(L, { cell, skipGolden = false } = {}) {
     ['F. Perímetre, accessibilitat i racons morts', checkGrid, !ctx.grid],
     ['G. Amples dels carrerons', checkAlleys, !ctx.colliders],
     ['I. Cementiri (Fase D.2)', checkCemetery, !ctx.fullColliders],
+    ['J. Cripta secreta (Fase D.3)', checkCrypt, !ctx.cryptColliders],
   ];
   const results = [];
   for (const [title, fn, skip] of sections) {
@@ -992,8 +1085,8 @@ const MUTATIONS = [
     apply: (L) => { L.DOORS.find((d) => d.id === 'D1').swing.hingeZ = -9.3; } },
   { name: 'angle màxim de D1 de 200° (la porta podria girar més de mitja volta)', expect: 'door-swing-range',
     apply: (L) => { L.DOORS.find((d) => d.id === 'D1').swing.maxAngleDeg = 200; } },
-  { name: 'D1 que comença tancada (cal prémer E per entrar)', expect: 'door-swing-initial',
-    apply: (L) => { L.DOORS.find((d) => d.id === 'D1').swing.initialAngleDeg = 0; } },
+  { name: 'D1 que comença oberta (D.3.1: ha de començar tancada)', expect: 'door-swing-initial',
+    apply: (L) => { L.DOORS.find((d) => d.id === 'D1').swing.initialAngleDeg = 80; } },
   { name: 'frontisses de D1 dins del pas (x ±1,0): les fulles tapen el pas', expect: 'door-swing-hinge',
     apply: (L) => { const s = L.DOORS.find((d) => d.id === 'D1').swing; s.hingeX = 1.0; s.leafLength = 0.99; } },
   { name: 'fulles de D1 que giren fins a 90° però queden dins el pas (angle inicial 90°, màx 100°, 0,2 m de gruix)', expect: 'door-swing-range',
@@ -1050,6 +1143,29 @@ const MUTATIONS = [
     apply: (L) => { L.CEM_PATHS[0].collision = { type: 'rect', xMin: 16, xMax: 17, zMin: -9, zMax: -8 }; } },
   { name: 'ID repetit al cementiri (SHED passa a dir-se MAU)', expect: 'cem-duplicate-id',
     apply: (L) => { L.CEM_PROPS.find((q) => q.id === 'SHED').id = 'MAU'; } },
+  // --- Fase D.3: cripta ---
+  { name: 'CH-N-B original absent (amb SD tancada la paret del fons té un forat cap al pou)', expect: 'crypt-sealed', skipGolden: true,
+    apply: (L) => { const c = L.BUILDINGS.find((q) => q.id === 'CH-N').collision; c.splice(c.findIndex((r) => r.id === 'CH-N-B'), 1); L.CRYPT_WALLS.push({ id: 'CH-N-B-X', visual: { footprint: { type: 'rect', xMin: -4, xMax: 4, zMin: -21, zMax: -20.4 }, height: 3, draw: false }, collision: { type: 'rect', xMin: -4, xMax: 4, zMin: -21, zMax: -20.4 } }); L.CRYPT_WALLS.splice(L.CRYPT_WALLS.findIndex((w) => w.id === 'CH-N-B-W'), 2); L.CRYPT.sdSplit.pieces = ['CH-N-B-X', 'CH-N-B-X']; L.CRYPT.sdSplit.original = 'CH-N-B-X'; } },
+  { name: 'pas de SD de només 0,5 m (les peces de CH-N-B se\'n mengen 0,45 m)', expect: 'crypt-sd-access', skipGolden: true,
+    apply: (L) => { const a = L.CRYPT_WALLS.find((w) => w.id === 'CH-N-B-W'); a.collision.xMax = -0.25; a.visual.footprint.xMax = -0.25; const b = L.CRYPT_WALLS.find((w) => w.id === 'CH-N-B-E'); b.collision.xMin = 0.25; b.visual.footprint.xMin = 0.25; } },
+  { name: 'pilar de la gran sala a 0,2 m de la paret de l\'arc (pas < 1,2 m)', expect: 'crypt-gap', skipGolden: true,
+    apply: (L) => { const p = L.CRYPT_PROPS.find((q) => q.id === 'CR-PIL-1'); p.collision.cx = -5.5; p.visual.center.x = -5.5; } },
+  { name: 'sarcòfag a 0,4 m de la paret oest de la sala del guardià', expect: 'crypt-gap', skipGolden: true,
+    apply: (L) => { const p = L.CRYPT_PROPS.find((q) => q.id === 'CR-SARC'); for (const r of [p.collision, p.visual.footprint]) { r.xMin = -10.0; r.xMax = -9.0; } } },
+  { name: 'pas ANT→SALA estretit a 1,0 m (el mur de l\'oest avança 0,6 m)', expect: 'crypt-gap', skipGolden: true,
+    apply: (L) => { const w = L.CRYPT_WALLS.find((q) => q.id === 'CR-DIV-W'); w.collision.xMax = -0.2; w.visual.footprint.xMax = -0.2; } },
+  { name: 'paret est de la gran sala a x 3,4 (res a x > 3,0)', expect: 'crypt-bounds', skipGolden: true,
+    apply: (L) => { const w = L.CRYPT_WALLS.find((q) => q.id === 'CR-SALA-E'); w.collision.xMax = 3.4; w.visual.footprint.xMax = 3.4; } },
+  { name: 'tapia del pas ANT→SALA (la gran sala queda aïllada)', expect: 'crypt-unreachable', skipGolden: true,
+    apply: (L) => { L.CRYPT_WALLS.push({ id: 'CR-X', level: -1, visual: { footprint: { type: 'rect', xMin: -0.8, xMax: 0.8, zMin: -30.4, zMax: -30 }, height: 3, draw: true }, collision: { type: 'rect', xMin: -0.8, xMax: 0.8, zMin: -30.4, zMax: -30 } }); } },
+  { name: 'solució del puzle diferent de la pista (lluna, campana, creu)', expect: 'crypt-puzzle',
+    apply: (L) => { L.CRYPT.puzzle.solution = ['moon', 'bell', 'cross']; } },
+  { name: 'escala de 15 graons (no arriba al terra de la cripta)', expect: 'crypt-stair',
+    apply: (L) => { L.CRYPT_FLOORS.stairs[0].treads = 15; } },
+  { name: 'KEY-C a la llista de claus (KEY-A/KEY-B no es toquen)', expect: 'crypt-key',
+    apply: (L) => { L.KEYS.push({ id: 'KEY-C', container: 'SHED' }); } },
+  { name: 'paret oest del pou de 0,3 m (valor aprovat 0,4)', expect: 'crypt-golden',
+    apply: (L) => { const w = L.CRYPT_WALLS.find((q) => q.id === 'CR-SH-W'); w.collision.xMax = -1.0; w.visual.footprint.xMax = -1.0; } },
 ];
 
 // ---------------------------------------------------------------------

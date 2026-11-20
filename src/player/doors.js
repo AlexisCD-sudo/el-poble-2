@@ -35,6 +35,7 @@ import { makeCollider, setSegment, distanceToSegment, movePlayer, createMoveResu
 const DEG = Math.PI / 180;
 const CLOSED_THRESHOLD = 0.35; // rad: per sobre d'això la porta es considera "oberta" (E la tanca)
 const EPS = 1e-6;
+const PUSH_LOCK = 0.02; // rad (~1°): una fulla completament tancada NO cedeix a l'empenta des de fora; només s'obre amb E (Fase D.3.1)
 
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -181,6 +182,7 @@ export function createSwingDoor(door) {
         if (cNew < radius - EPS && cNew < cOld - 1e-9) {
           // 1. El jugador empeny la fulla.
           const dir = releaseDirection(leaf, nx, nz);
+          if (dir > 0 && leaf.angle <= minA + PUSH_LOCK) { pushed = true; if (leaf.angle !== before) moved = true; continue; } // tancada: cal prémer E; movePlayer() atura el jugador contra la fusta
           const goal = angleToClear(leaf, dir, nx, nz, radius);
           const maxStep = sw.maxPushSpeed * dt;
           const next = clampA(leaf.angle + clamp(goal - leaf.angle, -maxStep, maxStep));

@@ -333,7 +333,7 @@ export const DOORS = [
     //   leafLength     de la frontissa al cantell lliure (tancada: 2,32 m en total, 2 cm de junta al mig);
     //   leafThickness  gruix visual; collisionHalfThickness = meitat del gruix de la col·lisió (càpsula);
     //   angles (graus) 0 = tancada (les dues fulles tapen el pas), 170 = oberta contra la paret interior;
-    //   initialAngleDeg  mig oberta (es pot entrar sense prémer res);
+    //   initialAngleDeg  0 = les dues fulles COMENCEN TANCADES (Fase D.3.1); s'obren amb E;
     //   openTargetDeg    angle on porta la tecla E en obrir;
     //   maxPushSpeed     velocitat angular màxima (rad/s) amb què el jugador pot empènyer una fulla;
     //   smoothTime/maxSpeed  animació suau amb E (temps de suavitzat en s i velocitat màxima en rad/s);
@@ -342,7 +342,7 @@ export const DOORS = [
     swing: {
       hingeX: 1.17, hingeZ: -9.705, leafLength: 1.16,
       leafThickness: 0.09, collisionHalfThickness: 0.05,
-      minAngleDeg: 0, maxAngleDeg: 170, initialAngleDeg: 80, openTargetDeg: 165,
+      minAngleDeg: 0, maxAngleDeg: 170, initialAngleDeg: 0, openTargetDeg: 165,
       maxPushSpeed: 4.5, smoothTime: 0.4, maxSpeed: 3.0,
       interactDistance: 3.2,
     },
@@ -428,9 +428,6 @@ export const FURNITURE = [
   furn('C-STORE', 'store', 'HC', 'Rebost: barrils i sacs', 'west', 5.32, 6.6, 9.4, 10.9, 1.2, { level: 0 }),
   furn('C-TABLE', 'table', 'HC', 'Taula gran', 'south', 3.4, 4.4, 11.3, 12.7, 0.8, { level: 0 }),
   furn('C-CH1', 'chair', 'HC', 'Cadira', 'south', 3.45, 3.85, 10.85, 11.3, 0.9, { level: 0, soft: true }),
-  furn('C-CH2', 'chair', 'HC', 'Cadira', 'south', 3.95, 4.35, 10.85, 11.3, 0.9, { level: 0, soft: true }),
-  furn('C-CH3', 'chair', 'HC', 'Cadira', 'north', 3.45, 3.85, 12.7, 13.15, 0.9, { level: 0, soft: true }),
-  furn('C-CH4', 'chair', 'HC', 'Cadira', 'north', 3.95, 4.35, 12.7, 13.15, 0.9, { level: 0, soft: true }),
   furn('C-DRS', 'dresser2', 'HC', 'Calaixera', 'north', 2.4, 3.6, 14.1, 14.6, 0.95, { level: 0 }),
   furn('C-CAB2', 'cabinet', 'HC', 'Armari de roba', 'north', 3.6, 4.3, 14.1, 14.6, 1.9, { level: 0 }),
   // Pis superior (level 1): dormitori de la família. Terra a y = 2,75; res no tapa les finestres (llindar a 3,55 m).
@@ -797,3 +794,160 @@ export const CEM_PROPS = [
   cemTree('T1', 5.6, -28.4, 5.2), cemTree('T2', 9.4, -12.2, 4.6), cemTree('T4', 26.2, -24.5, 5.8),
   cemTree('T6', 10.2, -31.0, 4.4), cemTree('T7', 19.4, -31.8, 5.0),
 ];
+
+// =====================================================================
+// FASE D.3 — CRIPTA SECRETA I PUZLE DELS TRES SÍMBOLS (només dades).
+// Especificació: docs/FASE_D1_CEMENTIRI_DISSENY.md (v4, apartat 8) + encàrrec de la Fase D.3. Les coordenades són les aprovades.
+//
+// Tot és NOU i viu en grups propis (CRYPT_FLOORS, CRYPT_WALLS, CRYPT_PROPS, CRYPT) perquè no es toqui cap dada existent:
+//   · SD (porta secreta) i KEY-A / KEY-B queden tal com eren. KEY-C NO és a `KEYS`: és a CRYPT.keyC (el sistema de claus A/B no canvia).
+//   · Nivell −1 (cripta): terra a y −3,2. Els obstacles del nivell −1 porten `level: −1` (collisions.js ja filtra per nivell).
+//     El pou de l'escala (CR-SH-*) no porta `level`: és una paret real a tots dos nivells.
+//   · Col·lisió condicional de SD: CH-N-B (x −4→4) es parteix en dues peces quan SD és 'open' (mecanisme `enabled`, com les portes de casa).
+//     Tancada, les dues peces són DINS de CH-N-B i la seva unió és idèntica: no canvia res.
+// =====================================================================
+const crRect = (xMin, xMax, zMin, zMax) => ({ type: 'rect', xMin, xMax, zMin, zMax });
+const crWall = (id, name, xMin, xMax, zMin, zMax, extra = {}) => {
+  const { level, height = 3.0, draw = true, ...rest } = extra;
+  return { id, name, ...(level !== undefined ? { level } : {}), visual: { footprint: crRect(xMin, xMax, zMin, zMax), height, draw, ...rest }, collision: crRect(xMin, xMax, zMin, zMax) };
+};
+
+// Terres del nivell −1 i escala descendent. S'afegeixen a FLOORS a main.js (createFloors) sense tocar FLOORS.
+//   levelSplitDown: per sota d'aquesta alçada dels peus el jugador és al nivell −1.
+//   L'escala fa 16 graons de 0,2 m d'alçada i 0,28 m de petjada (4,48 m): del replà (z −22,2, y 0) a la boca de l'antecambra (z −26,68, y −3,2).
+//   Igual que a l'escala de la casa C, el terra és una rampa que passa per les arestes dels graons (`rise` = alçada inicial: 0 al replà).
+export const CRYPT_FLOORS = {
+  levelSplitDown: -1.4,
+  slabs: [
+    { id: 'CR-F-ANT', level: -1, y: -3.2, rect: { xMin: -2.2, xMax: 2.2, zMin: -30, zMax: -26.7 }, holes: [] },
+    { id: 'CR-F-PAS', level: -1, y: -3.2, rect: { xMin: -0.8, xMax: 0.8, zMin: -30.4, zMax: -30 }, holes: [] },
+    { id: 'CR-F-SALA', level: -1, y: -3.2, rect: { xMin: -6, xMax: 2.6, zMin: -35.6, zMax: -30.4 }, holes: [] },
+    { id: 'CR-F-ARC', level: -1, y: -3.2, rect: { xMin: -6.4, xMax: -6, zMin: -34.6, zMax: -33 }, holes: [] },
+    { id: 'CR-F-GUARDIA', level: -1, y: -3.2, rect: { xMin: -10.4, xMax: -6.4, zMin: -35.6, zMax: -31 }, holes: [] },
+  ],
+  stairs: [
+    { id: 'CR-ST', rect: { xMin: -0.9, xMax: 0.9, zMin: -26.7, zMax: -22.2 }, axis: 'z', dir: -1, start: -22.2, run: 4.48, rise: 0, tread: 0.28, riser: 0.2, floorY: -3.2, treads: 16 },
+  ],
+};
+
+// Parets i obstacles de la cripta (rectangles; cada objecte té `visual` i `collision`, com CEM_WALLS / CEM_PROPS).
+export const CRYPT_WALLS = [
+  // Pou de l'escala («sagristia oculta»): parets de 0,4 m, interior x −0,9→0,9. Sense `level`: existeixen a la superfície i sota terra.
+  crWall('CR-SH-W', 'Pou de l\'escala, paret oest', -1.3, -0.9, -26.7, -21, { height: 6.4 }),
+  crWall('CR-SH-E', 'Pou de l\'escala, paret est', 0.9, 1.3, -26.7, -21, { height: 6.4 }),
+  crWall('CR-BOX-N', 'Caixa de l\'escala, paret nord (només superfície)', -1.3, 1.3, -27.1, -26.7, { level: 0, height: 3.2 }),
+  // Antecambra ANT (interior x −2,2→2,2, z −30→−26,7): la cara sud té la boca de l'escala (x −0,9→0,9).
+  crWall('CR-ANT-S-W', 'Antecambra, cara sud (oest)', -2.6, -1.3, -26.7, -26.3, { level: -1 }),
+  crWall('CR-ANT-S-E', 'Antecambra, cara sud (est)', 1.3, 2.6, -26.7, -26.3, { level: -1 }),
+  crWall('CR-ANT-W', 'Antecambra, paret oest', -2.6, -2.2, -30, -26.7, { level: -1 }),
+  crWall('CR-ANT-E', 'Antecambra, paret est', 2.2, 2.6, -30, -26.7, { level: -1 }),
+  // Mur entre l'antecambra i la gran sala (z −30,4→−30) amb el pas ANT→SALA (x −0,8→0,8)
+  crWall('CR-DIV-W', 'Mur ANT/SALA (oest del pas)', -6.4, -0.8, -30.4, -30, { level: -1 }),
+  crWall('CR-DIV-E', 'Mur ANT/SALA (est del pas)', 0.8, 3.0, -30.4, -30, { level: -1 }),
+  // Gran sala SALA (interior x −6→2,6, z −35,6→−30,4) i sala del guardià (x −10,4→−6,4, z −35,6→−31)
+  crWall('CR-SALA-E', 'Gran sala, paret est', 2.6, 3.0, -36, -30.4, { level: -1 }),
+  crWall('CR-N', 'Cripta, paret nord', -10.8, 3.0, -36, -35.6, { level: -1 }),
+  crWall('CR-ARC-S', 'Mur de l\'arc, tram sud', -6.4, -6.0, -33, -30.4, { level: -1 }),
+  crWall('CR-ARC-N', 'Mur de l\'arc, tram nord', -6.4, -6.0, -35.6, -34.6, { level: -1 }),
+  crWall('CR-G-W', 'Sala del guardià, paret oest', -10.8, -10.4, -35.6, -30.6, { level: -1 }),
+  crWall('CR-G-S', 'Sala del guardià, paret sud', -10.8, -6.4, -31, -30.6, { level: -1 }),
+  // Peces que substitueixen CH-N-B quan SD és oberta (x −4→−0,7 i 0,7→4, z −21→−20,4). No es dibuixen (la paret ja existeix).
+  crWall('CH-N-B-W', 'Paret del fons, peça oest (SD oberta)', -4, -0.7, -21, -20.4, { draw: false }),
+  crWall('CH-N-B-E', 'Paret del fons, peça est (SD oberta)', 0.7, 4, -21, -20.4, { draw: false }),
+];
+
+// Atrezzo amb col·lisió: altar dels discs, pilars, sarcòfag del guardià i la tauleta de la caixa (casa C, pis superior).
+const crCircle = (cx, cz, radius) => ({ type: 'circle', cx, cz, radius });
+export const CRYPT_PROPS = [
+  { id: 'CR-ALT', type: 'discAltar', name: 'Altar dels tres discs', level: -1,
+    visual: { footprint: crRect(-0.9, 0.9, -35.6, -34.8), height: 1.0 }, collision: crRect(-0.9, 0.9, -35.6, -34.8) },
+  { id: 'CR-PIL-1', type: 'pillar', name: 'Pilar de la gran sala (oest)', level: -1,
+    visual: { center: { x: -2.8, z: -32.4 }, radius: 0.3, height: 3.0 }, collision: crCircle(-2.8, -32.4, 0.3) },
+  { id: 'CR-PIL-2', type: 'pillar', name: 'Pilar de la gran sala (est)', level: -1,
+    visual: { center: { x: 1.0, z: -32.4 }, radius: 0.3, height: 3.0 }, collision: crCircle(1.0, -32.4, 0.3) },
+  { id: 'CR-SARC', type: 'sarcophagus', name: 'Sarcòfag del guardià', level: -1,
+    visual: { footprint: crRect(-8.9, -7.9, -34.4, -32.2), height: 0.85 }, collision: crRect(-8.9, -7.9, -34.4, -32.2) },
+  { id: 'C-U-CLUE-TABLE', type: 'clueTable', name: 'Tauleta de la caixa antiga (casa C, pis superior)', level: 1,
+    visual: { footprint: crRect(3.8, 4.6, 9.4, 9.95), height: 0.8 }, collision: crRect(3.8, 4.6, 9.4, 9.95) },
+];
+
+// Dades del puzle, la caixa-pista i els elements visuals/interactius de la cripta.
+export const CRYPT = {
+  id: 'CRYPT',
+  floorY: -3.2, ceilingY: -0.2,
+  // Volum subterrani reservat (D.1 v4 §8.3): cap peça a x > 3,0 ni sota l'església (z ≤ −26,3 → la caixa comença a z −26,3).
+  bounds: { xMin: -10.8, xMax: 3.0, zMin: -36, zMax: -26.3 },
+  // Pou de l'escala: exterior x −1,3→1,3, z −27,1→−21; interior x −0,9→0,9; teulada a y 3,2; replà z −22,2→−21; forat de terra z −26,7→−22,2.
+  shaft: { outer: crRect(-1.3, 1.3, -27.1, -21), inner: crRect(-0.9, 0.9, -26.7, -21), wall: 0.4, roofY: 3.2,
+    landing: crRect(-0.9, 0.9, -22.2, -21), hole: crRect(-0.9, 0.9, -26.7, -22.2) },
+  stair: { steps: 16, rise: 0.2, tread: 0.28, topZ: -22.2, topY: 0, bottomY: -3.2, xMin: -0.9, xMax: 0.9 },
+  rooms: {
+    ANT: { name: 'Antecambra', rect: crRect(-2.2, 2.2, -30, -26.7), ceilingY: -0.75 },
+    SALA: { name: 'Gran sala', rect: crRect(-6, 2.6, -35.6, -30.4), ceilingY: -0.35 },
+    GUARDIA: { name: 'Sala del guardià', rect: crRect(-10.4, -6.4, -35.6, -31), ceilingY: -0.6 },
+  },
+  openings: {
+    antSala: crRect(-0.8, 0.8, -30.4, -30),     // pas ANT → SALA (1,6 m)
+    arc: crRect(-6.4, -6, -34.6, -33),          // arc SALA → GUARDIÀ (1,6 m) amb una reixa baixa decorativa oberta
+  },
+  // Pas de SD (nau → pou): CH-N-B es parteix en dues peces amb l'obertura x −0,7→0,7.
+  sdSplit: { original: 'CH-N-B', pieces: ['CH-N-B-W', 'CH-N-B-E'], gap: { xMin: -0.7, xMax: 0.7 }, wallZ: { zMin: -21, zMax: -20.4 } },
+
+  // PUZLE: tres discs a l'altar (de l'oest a l'est, tal com els veu el jugador). Cada disc recorre els símbols en aquest ordre.
+  puzzle: {
+    symbols: ['bell', 'moon', 'cross', 'sun'],
+    names: { bell: 'Campana', moon: 'Lluna', cross: 'Creu', sun: 'Sol' },
+    solution: ['bell', 'moon', 'cross'],          // CAMPANA → LLUNA → CREU
+    start: ['sun', 'sun', 'sun'],                 // estat inicial fix (no aleatori): cap combinació encertada
+    discX: [-0.55, 0, 0.55], discY: 1.62, discR: 0.22, discZ: -35.31,   // centre dels discs (y relativa al terra del nivell −1)
+    interact: { x: 0, z: -35.31, range: 1.75, standZ: -34.4, standHalfX: 1.3 },  // el jugador ha de ser DAVANT de l'altar (z ≥ −34,4)
+    turnSeconds: 0.35,            // gir d'un disc (90°)
+    solveDelay: 1.2,              // pausa entre l'últim símbol correcte i el mecanisme del sarcòfag
+    sealSeconds: 1.6,             // animació de segellat dels discs un cop resolt
+  },
+  // SARCÒFAG: bloquejat fins que el puzle és resolt; E alça la tapa (llisca cap al nord) i apareix KEY-C.
+  sarcophagus: {
+    id: 'CR-SARC', interact: { x: -8.4, z: -33.3, range: 2.0 },
+    lidSlide: 1.05, lidSeconds: 2.6, unlockSeconds: 1.4,
+  },
+  // KEY-C (NO és a KEYS): ferro negre, petita creu. Dins del sarcòfag, sobre el sudari.
+  keyC: { id: 'KEY-C', name: 'Clau del cementiri', material: 'blackIron', symbol: 'cross',
+    description: 'clau de ferro negre molt vell, amb una petita creu a l\'anella',
+    pos: { x: -8.4, z: -32.75 }, y: -3.2 + 0.64, pickRange: 2.0 },
+  // CAIXA-PISTA (casa C, pis superior): caixa de fusta antiga damunt la tauleta. No dona cap clau ni activa cap mecanisme de la casa.
+  clue: {
+    id: 'CLUE-BOX', table: 'C-U-CLUE-TABLE', center: { x: 4.2, z: 9.68 }, y: 2.75 + 0.8, w: 0.36, d: 0.24, h: 0.15,
+    range: 1.8, closeDistance: 2.6,
+    text: 'El guardià no escolta qui truca, sinó qui recorda l\'ordre.',
+    order: ['bell', 'moon', 'cross'],
+  },
+  // Flames (ciris petits): `light` = punt on es posa l'única llum puntual càlida (es mou al racó més proper al jugador).
+  candles: [
+    { id: 'CR-C1', x: -0.8, y: -0.95, z: -25.1, on: 'wall' },
+    { id: 'CR-C2', x: -2.12, y: -2.55, z: -28.4, on: 'ledge' },
+    { id: 'CR-C3', x: -0.72, y: -2.2, z: -35.0, on: 'altar' },
+    { id: 'CR-C4', x: 0.72, y: -2.2, z: -35.0, on: 'altar' },
+    { id: 'CR-C5', x: 1.55, y: -3.2, z: -31.1, on: 'floor' },
+    { id: 'CR-C6', x: -9.4, y: -3.2, z: -34.8, on: 'floor' },
+    { id: 'CR-C7', x: -7.4, y: -3.2, z: -34.8, on: 'floor' },
+    // Fase D.3.1: cinc espelmes més, a punts estratègics (antecambra, sala principal, sala del guardià), fora de les lloses i dels pilars
+    { id: 'CR-C8', x: 1.85, y: -3.2, z: -29.55, on: 'floor' },
+    { id: 'CR-C9', x: -3.6, y: -3.2, z: -35.25, on: 'floor' },
+    { id: 'CR-C10', x: 2.25, y: -3.2, z: -35.25, on: 'floor' },
+    { id: 'CR-C11', x: -5.6, y: -3.2, z: -31.0, on: 'floor' },
+    { id: 'CR-C12', x: -9.9, y: -3.2, z: -31.55, on: 'floor' },
+  ],
+  lights: [
+    { id: 'CL-STAIR', x: -0.45, y: -1.15, z: -25.0 },
+    { id: 'CL-ANT', x: -1.5, y: -2.3, z: -28.3 },
+    { id: 'CL-SALA', x: 0, y: -1.95, z: -34.1 },
+    { id: 'CL-GUARDIA', x: -8.4, y: -1.95, z: -34.0 },
+    // Fase D.3.1: més punts on la llum única pot «posar-se» (continua sent UNA sola PointLight)
+    { id: 'CL-ANT-E', x: 1.4, y: -2.3, z: -28.8 },
+    { id: 'CL-SALA-W', x: -3.9, y: -1.95, z: -33.4 },
+    { id: 'CL-GUARDIA-S', x: -9.3, y: -1.95, z: -32.0 },
+  ],
+  light: { color: 0xffb468, intensity: 9, distance: 8, decay: 2 }, // D.3.1: abans 6 / 6,5 (massa fosca)
+  // Il·luminació global soterrada: s'interpola amb la fondària (vegeu src/player/crypt.js → undergroundView).
+  ambient: { hemiSurface: 1.5, hemiDeep: 0.42, moonSurface: 1.2, moonDeep: 0, fogNearDeep: 2.5, fogFarDeep: 16, fogColorDeep: 0x050608 },
+};

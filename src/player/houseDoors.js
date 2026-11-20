@@ -90,6 +90,14 @@ export function createHouseDoor(door) {
       return st.angle <= 1e-6 ? 'closed' : 'closing';
     },
     get message() { return st.msg; },
+    // --- Desar / carregar (Fase D.3.1). Només es desa amb la porta quieta (tancada o oberta del tot). ---
+    isSettled() { return !api.isMoving(); },
+    // Estat final cap al qual va la porta (si es mou, el seu destí): { open, side }.
+    snapshot() { return { open: st.target > 0, side: st.side }; },
+    restore(snap) {
+      st.side = snap.side === -1 ? -1 : 1; st.target = snap.open ? 1 : 0; st.angle = snap.open ? openRad : 0; st.msg = '';
+      collider.enabled = st.angle < ENABLE_ANGLE;
+    },
     inSweep(x, z, r) { return inSweep(x, z, r, st.side); },
     // E: obre (cap al costat contrari al del jugador) o tanca (si el jugador no és a la zona de la fulla).
     // Retorna { changed, opened?, reason? }.

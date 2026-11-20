@@ -1,12 +1,24 @@
 
 import * as THREE from 'three';
-import { buildVillage } from './world/village.js';
+import { buildVillage, createGroundGeometry } from './world/village.js';
 import { buildColliders, movePlayer, createMoveResult } from './player/collisions.js';
 import { createSwingDoor } from './player/doors.js';
-import { createGameplay } from './player/puzzle.js';
+import { createGameplay, KEY_DESCRIPTIONS } from './player/puzzle.js';
 import { createHouseDoor } from './player/houseDoors.js';
 import { createFloors, smoothHeight } from './player/floors.js';
-import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS, CEM_WALLS, CEM_PROPS } from './world/layout.js';
+import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS, CEM_WALLS, CEM_PROPS, CRYPT, CRYPT_WALLS, CRYPT_PROPS, CRYPT_FLOORS } from './world/layout.js';
+import { createCryptAccess, undergroundView } from './player/crypt.js';
+import { createNoteView } from './ui/noteView.js';
+import { createCryptSounds } from './audio/cryptSounds.js';
+// Fase D.3.1: menú de pausa, desar/carregar, documents i mapa (cada cosa al seu mòdul; aquí només es connecten)
+import { createPauseController } from './game/pauseState.js';
+import { captureState, canSave, applyState, readSave, writeSave, formatSavedAt } from './game/saveGame.js';
+import { createDocuments, documentDefs, DOCUMENT_IDS } from './player/documents.js';
+import { buildMapData, createMapProgress, buildMapModel } from './world/mapData.js';
+import { drawMap } from './ui/mapView.js';
+import { createPauseMenu } from './ui/pauseMenu.js';
+import { inventoryEntries, documentEntries, NO_SAVE_TEXT } from './ui/menuModel.js';
+import * as LAYOUT_ALL from './world/layout.js';
 
 // -----------------------------------------------------
 // 1. CONFIGURACIÓ (valors que pots retocar fàcilment)
@@ -366,7 +378,7 @@ window.addEventListener('pagehide', () => sky.dispose());
 // MeshLambertMaterial és més lleuger que MeshStandardMaterial:
 // ideal per a la teva AMD Radeon HD 6770M.
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(200, 200),
+  createGroundGeometry(200, [CRYPT.shaft.hole]), // Fase D.3: mateix terra 200×200, amb el forat de l'escala de la cripta
   new THREE.MeshLambertMaterial({ color: 0x2b2f38 })
 );
 ground.rotation.x = -Math.PI / 2; // El plànol és vertical per defecte; el posem horitzontal
@@ -381,6 +393,10 @@ const village = buildVillage(scene);
 const colliders = buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS });
 // Fase D.2: el cementiri és visible però inaccessible. Els seus murs i atrezzo (CEM_WALLS, CEM_PROPS) afegeixen només obstacles.
 colliders.push(...buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CEM_WALLS, CEM_PROPS }));
+// Fase D.3: cripta secreta (nivell −1), escala i tauleta de la caixa-pista. L'accés per la paret de l'altar només s'obre quan SD és 'open'
+// (CH-N-B es parteix en dues peces; amb SD tancada tot és idèntic a abans).
+colliders.push(...buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CRYPT_WALLS, CRYPT_PROPS }));
+const cryptAccess = createCryptAccess(colliders, CRYPT);
 
 // Porta física de l'església (D1): dues fulles que giren. Les seves col·lisions (segments)
 // s'afegeixen a la mateixa llista i es MOUEN amb les fulles; doors.js en calcula l'estat.
@@ -406,14 +422,21 @@ function syncHouseDoors() { // només toca la geometria quan l'angle ha canviat
 syncHouseDoors();
 
 // Terra i escala de la casa C (Fase C): l'alçada dels peus depèn de la posició i del nivell (src/player/floors.js).
-const floors = createFloors(FLOORS);
-let playerLevel = 0;      // 0 = planta baixa, 1 = pis superior
+const floors = createFloors({ ...FLOORS, slabs: [...FLOORS.slabs, ...CRYPT_FLOORS.slabs], stairs: [...FLOORS.stairs, ...CRYPT_FLOORS.stairs], levelSplitDown: CRYPT_FLOORS.levelSplitDown });
+let playerLevel = 0;      // 0 = planta baixa, 1 = pis superior, −1 = cripta (Fase D.3)
 let feetY = 0;            // alçada dels peus (la càmera és a feetY + EYE_HEIGHT, suavitzada)
 let eyeY = EYE_HEIGHT;
 
 // Línia de visió de les portes de casa: només obstacles massissos (parets, escales), no els mobles baixos.
 const doorOccluders = buildColliders({ BUILDINGS, WALLS, PROPS: [], FURNITURE: [], STAIRS });
-const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS });
+const cryptOccluders = buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CRYPT_WALLS }).filter((c) => !c.id.startsWith('CH-N-B-')); // les peces de CH-N-B no són obstacles de visió
+const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS, crypt: { def: CRYPT, occluders: cryptOccluders } });
+const cryptVisual = village.crypt;            // geometria i animacions de la cripta (grup propi, fora del poble)
+const cryptSounds = createCryptSounds();
+const noteView = createNoteView(CRYPT);
+const baseFogNear = scene.fog.near; const baseFogFar = scene.fog.far;
+const baseFogColor = scene.fog.color.clone(); const deepFogColor = new THREE.Color(CRYPT.ambient.fogColorDeep);
+let cryptLightTarget = 0; let cryptLightX = CRYPT.lights[0].x; let cryptLightY = CRYPT.lights[0].y; let cryptLightZ = CRYPT.lights[0].z;
 const puzzleVisual = village.puzzle;
 const shown = { door: -1, drawer: -1, lid: -1, keys: {}, inserted: {} };
 function syncPuzzleVisual() { // només toca la geometria quan l'estat ha canviat
@@ -429,6 +452,40 @@ function syncPuzzleVisual() { // només toca la geometria quan l'estat ha canvia
     const ins = gameplay.secretDoor.isInserted(k.id);
     if (ins !== shown.inserted[k.id]) { shown.inserted[k.id] = ins; puzzleVisual.setKeyInserted(k.id, ins); }
   }
+}
+const cryptShown = { disc: [NaN, NaN, NaN], seal: -1, unlock: -1, lid: -1, key: null, sel: -2 };
+function syncCryptVisual(px, pz, dirX, dirZ, t) { // només toca la geometria quan l'estat ha canviat
+  const cg = gameplay.crypt; const h = cryptVisual.handles;
+  for (let i = 0; i < 3; i++) { const a = cg.puzzle.discAngle(i); if (a !== cryptShown.disc[i]) { cryptShown.disc[i] = a; h.setDiscAngle(i, a); } }
+  const seal = cg.puzzle.sealProgress(); if (seal !== cryptShown.seal) { cryptShown.seal = seal; h.setSeal(seal); }
+  const un = cg.sarcophagus.unlockProgress(); if (un !== cryptShown.unlock) { cryptShown.unlock = un; h.setSarcUnlock(un); }
+  const lid = cg.sarcophagus.lidProgress(); if (lid !== cryptShown.lid) { cryptShown.lid = lid; h.setLid(lid); }
+  const kv = cg.sarcophagus.keyVisible() && !cg.sarcophagus.keyTaken(); if (kv !== cryptShown.key) { cryptShown.key = kv; h.setKeyVisible(kv); }
+  const sel = !cg.puzzle.solved() && gameplay.target && gameplay.target.id === 'CR-DISCS' ? cg.puzzle.aimedDisc(px, pz, dirX, dirZ) : -1;
+  if (sel !== cryptShown.sel) { cryptShown.sel = sel; h.setSelectedDisc(sel); }
+}
+const CRYPT_SOUND = { disc: 'disc', solved: 'solved', mechanism: 'mechanism', lid: 'lid', key: 'key', note: 'note' };
+function cryptFrame(dt, seconds) { // arbres d'accés, llum, visibilitat i sons de la cripta
+  const px = camera.position.x; const pz = camera.position.z;
+  cryptAccess.sync(gameplay.secretDoor.state);
+  const view = undergroundView(feetY, px, pz, CRYPT);
+  village.root.visible = view.villageVisible;
+  cryptVisual.interior.visible = view.interiorVisible;
+  hemiLight.intensity = view.hemi; moonLight.intensity = view.moon;
+  scene.fog.near = baseFogNear + (view.fogNearDeep - baseFogNear) * view.fogT;
+  scene.fog.far = baseFogFar + (view.fogFarDeep - baseFogFar) * view.fogT;
+  scene.fog.color.copy(baseFogColor).lerp(deepFogColor, view.fogT);
+  // Una sola llum puntual: s'apropa al racó d'espelmes més proper (suau) i parpelleja.
+  let best = CRYPT.lights[0]; let bd = Infinity;
+  for (const l of CRYPT.lights) { const d = Math.hypot(l.x - px, l.z - pz); if (d < bd) { bd = d; best = l; } }
+  const k = 1 - Math.exp(-3 * dt);
+  cryptLightX += (best.x - cryptLightX) * k; cryptLightY += (best.y - cryptLightY) * k; cryptLightZ += (best.z - cryptLightZ) * k;
+  cryptVisual.light.position.set(cryptLightX, cryptLightY, cryptLightZ);
+  const want = view.lightOn ? CRYPT.light.intensity * (0.93 + 0.04 * Math.sin(seconds * 9.1) + 0.03 * Math.sin(seconds * 23.7)) : 0;
+  cryptLightTarget += (want - cryptLightTarget) * Math.min(1, 6 * dt);
+  cryptVisual.light.intensity = cryptLightTarget;
+  for (const ev of gameplay.crypt.drainEvents()) if (CRYPT_SOUND[ev.type]) cryptSounds.play(CRYPT_SOUND[ev.type]);
+  noteView.setVisible(gameplay.crypt.note.isOpen());
 }
 const moveResult = createMoveResult(); // objecte reutilitzat cada fotograma (sense crear brossa)
 
@@ -454,7 +511,7 @@ overlay.innerHTML = `
     W A S D — moure's<br>
     Ratolí — mirar al voltant<br>
     E — interactuar (portes, calaixos, claus)<br>
-    Esc — alliberar el ratolí
+    Esc — menú de pausa (inventari, documents, mapa, guardar i carregar)
   </div>
 `;
 document.body.appendChild(overlay);
@@ -490,22 +547,31 @@ document.body.appendChild(inventoryBox);
 // 8. POINTER LOCK (captura del ratolí)
 // -----------------------------------------------------
 // Només es pot activar com a resposta a un clic de l'usuari.
-overlay.addEventListener('click', () => {
-  renderer.domElement.requestPointerLock();
-});
+function requestLock() {
+  const r = renderer.domElement.requestPointerLock();
+  if (r && typeof r.catch === 'function') r.catch(() => { pause.onLockError(); pauseMenu.setHint('El navegador no ha deixat recuperar el ratolí. Torna a fer clic a «Tornar al joc».'); });
+}
+overlay.addEventListener('click', () => { requestLock(); });
 
-// Aquest esdeveniment salta quan el ratolí es captura o s'allibera (p. ex. amb Esc).
+// Aquest esdeveniment salta quan el ratolí es captura o s'allibera. ESC amb el ratolí capturat NOMÉS el desactiva (el navegador no
+// envia cap `keydown`): per això la pausa neix aquí (Fase D.3.1). Mentre hi ha pausa, el joc no avança (vegeu animate()).
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement;
-  overlay.style.display = locked ? 'none' : 'flex';
-  if (!locked) {
-    // Si sortim, esborrem les tecles premudes per evitar que el jugador segueixi caminant sol.
+  pause.onLockChange(locked);
+  if (locked) {
+    overlay.style.display = 'none'; pauseMenu.hide();
+  } else {
+    // Si sortim, esborrem les tecles premudes i la velocitat perquè el jugador no segueixi caminant sol.
     for (const key in keys) keys[key] = false;
+    velocity.set(0, 0, 0);
+    if (pause.started) { overlay.style.display = 'none'; pauseMenu.show(); } else overlay.style.display = 'flex';
   }
 });
 
 document.addEventListener('pointerlockerror', () => {
   console.warn('No s\'ha pogut capturar el ratolí.');
+  pause.onLockError();
+  if (pause.started) pauseMenu.setHint('No s\'ha pogut recuperar el ratolí. Torna a fer clic a «Tornar al joc».');
 });
 
 // -----------------------------------------------------
@@ -522,7 +588,11 @@ function setKey(code, pressed) {
   if (code === 'KeyD') keys.right = pressed;
 }
 document.addEventListener('keydown', (e) => {
-  setKey(e.code, true);
+  if (e.code === 'Escape') { // només arriba amb el ratolí lliure (menú de pausa obert): reprèn la partida
+    if (pause.paused && !e.repeat) pause.onEscape();
+    return;
+  }
+  if (document.pointerLockElement === renderer.domElement) setKey(e.code, true); // en pausa no s'acumulen tecles
   // E: interacciona amb UN SOL objecte (el més proper i davant dels ulls): porta de l'església, calaix, arca, clau
   // o porta secreta. Només amb el ratolí capturat i sense repetició de tecla.
   if (e.code === 'KeyE' && !e.repeat && document.pointerLockElement === renderer.domElement) {
@@ -538,8 +608,9 @@ let pitch = 0;
 const MAX_PITCH = Math.PI / 2 - 0.05; // Gairebé 90°, sense arribar a girar el cap del revés
 
 document.addEventListener('mousemove', (e) => {
-  // Només girem si el ratolí està capturat.
+  // Només girem si el ratolí està capturat i el moviment és fiable (sense el salt que alguns navegadors fan en recuperar el ratolí).
   if (document.pointerLockElement !== renderer.domElement) return;
+  if (!pause.acceptMouse(e.movementX, e.movementY)) return;
   yaw -= e.movementX * MOUSE_SENSITIVITY;
   pitch -= e.movementY * MOUSE_SENSITIVITY;
   // Limitem el pitch perquè no es pugui fer una volta completa.
@@ -549,12 +620,25 @@ document.addEventListener('mousemove', (e) => {
 // -----------------------------------------------------
 // 10. MOVIMENT
 // -----------------------------------------------------
+let gameTime = 0;                            // segons de joc (no avança en pausa)
 const velocity = new THREE.Vector3();        // Velocitat actual (suavitzada)
 const targetVelocity = new THREE.Vector3();  // Velocitat que volem aconseguir
 const forwardDir = new THREE.Vector3();
 const rightDir = new THREE.Vector3();
 
+function updateHud() { // indicació d'E, missatge i inventari
+  const locked = document.pointerLockElement === renderer.domElement;
+  const hintText = locked ? (gameplay.prompt || gameplay.hint(camera.position.x, camera.position.z)) : ''; // sense objectiu: indicació discreta de l'altar (D.3)
+  if (doorHint.textContent !== hintText) { doorHint.textContent = hintText; doorHint.style.display = hintText ? 'block' : 'none'; }
+  const msgText = gameplay.message;
+  if (messageBox.textContent !== msgText) { messageBox.textContent = msgText; messageBox.style.display = msgText ? 'block' : 'none'; }
+  const inv = gameplay.inventory.list();
+  const invText = inv.length ? `Inventari — ${inv.map((i) => i.name).join(' · ')}   (${inv.length}/${KEYS.length + 1} claus)` : '';
+  if (inventoryBox.textContent !== invText) { inventoryBox.textContent = invText; inventoryBox.style.display = invText ? 'block' : 'none'; }
+}
+
 function updatePlayer(dt) {
+  gameTime += dt;   // rellotge de joc: s'atura en pausa (efectes dependents del temps: parpelleig de la llum, cel, etc.)
   // Direccions "endavant" i "dreta" segons cap a on mira el jugador (només horitzontal).
   forwardDir.set(-Math.sin(yaw), 0, -Math.cos(yaw));
   rightDir.set(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -609,19 +693,89 @@ function updatePlayer(dt) {
   gameplay.update(dt, camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw), { level: playerLevel, feetY });
   syncPuzzleVisual();
   syncHouseDoors();
-  const locked = document.pointerLockElement === renderer.domElement;
-  const hintText = locked ? gameplay.prompt : '';
-  if (doorHint.textContent !== hintText) { doorHint.textContent = hintText; doorHint.style.display = hintText ? 'block' : 'none'; }
-  const msgText = gameplay.message;
-  if (messageBox.textContent !== msgText) { messageBox.textContent = msgText; messageBox.style.display = msgText ? 'block' : 'none'; }
-  const inv = gameplay.inventory.list();
-  const invText = inv.length ? `Inventari — ${inv.map((i) => i.name).join(' · ')}   (${inv.length}/${KEYS.length} claus)` : '';
-  if (inventoryBox.textContent !== invText) { inventoryBox.textContent = invText; inventoryBox.style.display = invText ? 'block' : 'none'; }
+  cryptFrame(dt, gameTime);
+  syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
+  trackProgress();
+  updateHud();
 
   // Apliquem la rotació a la càmera.
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 }
+
+// -----------------------------------------------------
+// 10b. PAUSA, DOCUMENTS, MAPA, DESAR I CARREGAR (Fase D.3.1)
+// -----------------------------------------------------
+// La lògica és als mòduls: game/pauseState.js (pausa i pointer lock), game/saveGame.js (desar/validar/carregar), player/documents.js,
+// world/mapData.js i ui/pauseMenu.js. Aquí només es connecten amb el joc.
+const pause = createPauseController({ requestLock: () => requestLock() });
+const documents = createDocuments(documentDefs(CRYPT));
+const mapData = buildMapData(LAYOUT_ALL);
+const mapProgress = createMapProgress(mapData);
+const houseDoorIds = DOORS.filter((d) => d.house).map((d) => d.id);
+const churchSwing = DOORS.find((d) => d.id === 'D1').swing;
+const saveDefs = {
+  KEYS, CRYPT, SECRET_DOOR, houseDoorIds,
+  churchLimits: { min: (churchSwing.minAngleDeg * Math.PI) / 180, max: (churchSwing.maxAngleDeg * Math.PI) / 180 },
+  documentIds: documents.knownIds(), noteDocumentId: DOCUMENT_IDS.symbolNote, zoneIds: mapData.zones.map((z) => z.id),
+  levelSplit: FLOORS.levelSplit, levelSplitDown: CRYPT_FLOORS.levelSplitDown, mapLimit: MAP_LIMIT,
+};
+let storage = null;
+try { storage = window.localStorage; } catch (e) { storage = null; }
+
+function getPose() { return { x: camera.position.x, z: camera.position.z, yaw, pitch, level: playerLevel, feetY }; }
+function setPose(p) {
+  camera.position.x = p.x; camera.position.z = p.z; yaw = p.yaw; pitch = p.pitch;
+  const fl = floors.resolve(p.x, p.z, p.level); feetY = fl.y; playerLevel = fl.level;   // l'alçada surt del terra, no de la dada desada
+  eyeY = feetY + EYE_HEIGHT; camera.position.y = eyeY;
+  velocity.set(0, 0, 0);
+  camera.rotation.y = yaw; camera.rotation.x = pitch;
+}
+const mapFlags = () => ({ sdOpen: gameplay.secretDoor.state === 'open', cemeteryOpen: false }); // el cementiri no s'obre fins a la Fase D.4
+function trackProgress() { // documents descoberts i zones del mapa (cada fotograma de joc; molt barat)
+  if (gameplay.crypt && gameplay.crypt.note.seen()) documents.discover(DOCUMENT_IDS.symbolNote);
+  mapProgress.update(camera.position.x, camera.position.z, playerLevel, mapFlags());
+}
+const saveCtx = () => ({ gameplay, getPose, setPose, documents, mapProgress, colliders, radius: PLAYER_RADIUS, mapLimit: MAP_LIMIT, afterRestore: () => cryptAccess.sync(gameplay.secretDoor.state) });
+
+// Després de carregar: la geometria, la llum i el HUD es posen al dia sense fer avançar el temps de joc.
+function refreshWorld() {
+  syncDoorVisual(); syncPuzzleVisual(); syncHouseDoors();
+  cryptFrame(0, gameTime);
+  syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
+  trackProgress(); updateHud();
+}
+function doSave() {
+  if (!storage) return { ok: false, message: 'El navegador no permet desar (emmagatzematge no disponible).' };
+  trackProgress();
+  const c = canSave(saveCtx());
+  if (!c.ok) return { ok: false, message: c.reason };
+  const data = captureState(saveCtx());
+  const w = writeSave(storage, data);
+  return w.ok ? { ok: true, message: `Partida guardada (${formatSavedAt(data.savedAt)}).` } : { ok: false, message: w.error };
+}
+function doLoad() {
+  if (!storage) return { ok: false, message: 'El navegador no permet carregar (emmagatzematge no disponible).' };
+  const r = readSave(storage);
+  if (r.status === 'none') return { ok: false, message: NO_SAVE_TEXT };
+  if (r.status !== 'ok') return { ok: false, message: 'La partida desada està malmesa i no es pot carregar.' };
+  const res = applyState(saveCtx(), r.data, saveDefs);
+  if (!res.ok) { console.warn('Càrrega refusada:', res.errors); return { ok: false, message: res.error }; }
+  refreshWorld();
+  return { ok: true, message: 'Partida carregada. Prem «Tornar al joc» per continuar.' };
+}
+const pauseMenu = createPauseMenu({
+  drawMap,
+  model: {
+    getInventory: () => inventoryEntries({ KEYS, CRYPT, keyDescription: (k) => KEY_DESCRIPTIONS[k.material] }, gameplay.inventory.list().map((i) => i.id)),
+    getDocuments: () => documentEntries(documents.list()),
+    getMap: () => { trackProgress(); return buildMapModel(mapData, mapProgress, getPose(), mapFlags()); },
+    getSaveInfo: () => { const r = readSave(storage || { getItem: () => { throw new Error('sense emmagatzematge'); } }); return { status: r.status, savedAt: r.data && r.data.savedAt }; },
+  },
+  actions: { resume: () => pause.resume(), save: doSave, load: doLoad },
+});
+// Eina de depuració per a proves en navegador (consola: window.__forgottenVillage); el joc no la fa servir
+window.__forgottenVillage = { pause, documents, getPose, setPose, refreshWorld, doSave, doLoad, gameplay, mapProgress, get gameTime() { return gameTime; } };
 
 // -----------------------------------------------------
 // 11. REDIMENSIONAT DE LA FINESTRA
@@ -646,8 +800,12 @@ function animate() {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
 
-  updatePlayer(dt);
-  sky.update(dt, camera, now / 1000); // el cel segueix la càmera (després de moure-la)
+  // En pausa (ratolí alliberat després d'haver començat) el temps de joc NO avança: ni moviment, ni interaccions, ni portes, ni cel.
+  const gdt = pause.started ? pause.gameDt(dt) : dt; // abans del primer clic el món «respira» (el jugador no es pot moure)
+  if (gdt > 0) {
+    updatePlayer(gdt);
+    sky.update(gdt, camera, gameTime); // el cel segueix la càmera (després de moure-la)
+  }
   renderer.render(scene, camera);
 }
 

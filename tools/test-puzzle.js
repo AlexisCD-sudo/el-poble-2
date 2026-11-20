@@ -29,6 +29,7 @@ function makeRng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5)
 // El món tal com el veu main.js: estructura + mobles + les dues fulles de D1.
 const door = createSwingDoor(DOORS.find((d) => d.id === 'D1'));
 const colliders = buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE });
+door.setAngles(80 * Math.PI / 180, 80 * Math.PI / 180); // Fase D.3.1: D1 comença tancada; aquí es posa mig oberta per provar l'interior (el jugador l'obriria amb E)
 colliders.push(...door.colliders);
 const shell = buildColliders({ BUILDINGS, WALLS, PROPS });
 const out = createMoveResult();
@@ -210,17 +211,19 @@ test('Puzle complet: calaix, arca, tornar a l\'església, inserir una per una i 
   advance(g, 12);
   expect(g.secretDoor.state === 'open' && /foscor/.test(g.prompt === '' ? 'foscor' : g.prompt), 'porta oberta');
 });
-test('La porta D1 continua funcionant amb E (tanca i obre) i amb el nou sistema d\'interacció', () => {
+test('La porta D1 (D.3.1) comença TANCADA i funciona amb E (obre i tanca) i amb el nou sistema d\'interacció', () => {
   const cd = createSwingDoor(DOORS.find((d) => d.id === 'D1'));
   const g = newGame(cd);
   g.update(dt, 0, -7, 0, -1);
-  expect(g.target && g.target.id === 'D1' && g.prompt === 'E — tancar la porta' && cd.isOpen(), g.prompt);
+  expect(g.target && g.target.id === 'D1' && g.prompt === 'E — obrir la porta' && !cd.isOpen(), `inici: ${g.prompt}`);
   g.pressE(0, -7, 0, -1);
   for (let i = 0; i < 240; i++) cd.update(1 / 60, 0, -7, 0, 0, R, null);   // main.js l'actualitza cada fotograma
-  expect(!cd.isOpen() && g.prompt === 'E — obrir la porta', `tancada? angles ${cd.angles()}`);
+  g.update(dt, 0, -7, 0, -1);
+  expect(cd.isOpen() && g.prompt === 'E — tancar la porta', `oberta? angles ${cd.angles()}`);
   g.pressE(0, -7, 0, -1);
   for (let i = 0; i < 240; i++) cd.update(1 / 60, 0, -7, 0, 0, R, null);
-  expect(cd.isOpen() && g.prompt === 'E — tancar la porta', 'oberta una altra vegada');
+  g.update(dt, 0, -7, 0, -1);
+  expect(!cd.isOpen() && g.prompt === 'E — obrir la porta', 'tancada una altra vegada');
 });
 
 // ---------------------------------------------------------------- 4. col·lisions i mobles

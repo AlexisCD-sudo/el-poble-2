@@ -54,13 +54,14 @@ export function createInventory() {
   };
 }
 
-// target: { id, x, z, range, facing?, priority?, enabled?() }. (dirX, dirZ) = direcció de la mirada (no cal normalitzar).
+// target: { id, x, z, range, facing?, priority?, enabled?(), stand?(px, pz) }. (dirX, dirZ) = direcció de la mirada (no cal normalitzar).
 export function pickTarget(targets, px, pz, dirX, dirZ, view) {
   const dl = Math.hypot(dirX, dirZ) || 1;
   const dx = dirX / dl; const dz = dirZ / dl;
   let best = null; let bestScore = Infinity;
   for (const t of targets) {
     if (t.enabled && !t.enabled()) continue;
+    if (t.stand && !t.stand(px, pz)) continue; // (Fase D.3) posició obligada: p. ex. DAVANT de l'altar dels discs
     if (t.spatial && !canInteractSpatially(t.spatial, t.x, t.z, px, pz, dirX, dirZ, view)) continue; // portes de casa (Fase C.1)
     const vx = t.x - px; const vz = t.z - pz;
     const d = Math.hypot(vx, vz);

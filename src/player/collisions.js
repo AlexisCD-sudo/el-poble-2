@@ -29,6 +29,7 @@
 // NIVELLS (Fase C, pis superior de la casa C): un obstacle pot dur `level` (0 = planta baixa, 1 = pis superior);
 // només col·lisiona amb un jugador que és a aquest nivell. Sense `level` (parets, escala…) col·lisiona sempre.
 // Un obstacle amb `enabled === false` (porta de casa oberta) és com si no hi fos.
+// Nivell −1 (Fase D.3, cripta): els obstacles de la cripta porten `level: -1` i només compten per a un jugador de sota terra.
 // =====================================================================
 
 export const COLLISION_TOLERANCE = 1e-6;
@@ -99,8 +100,8 @@ export function distanceToSegment(px, pz, x1, z1, x2, z2, out) {
 // té l'interior i la porta oberts). Cada forma de la llista és un obstacle.
 export function buildColliders(layout) {
   const colliders = [];
-  // FURNITURE (Fase B), STAIRS (Fase C) i CEM_WALLS / CEM_PROPS (Fase D.2, cementiri) són opcionals.
-  for (const group of [layout.BUILDINGS, layout.WALLS, layout.PROPS, layout.FURNITURE || [], layout.STAIRS || [], layout.CEM_WALLS || [], layout.CEM_PROPS || []]) {
+  // FURNITURE (Fase B), STAIRS (Fase C), CEM_WALLS / CEM_PROPS (Fase D.2, cementiri) i CRYPT_WALLS / CRYPT_PROPS (Fase D.3, cripta) són opcionals.
+  for (const group of [layout.BUILDINGS, layout.WALLS, layout.PROPS, layout.FURNITURE || [], layout.STAIRS || [], layout.CEM_WALLS || [], layout.CEM_PROPS || [], layout.CRYPT_WALLS || [], layout.CRYPT_PROPS || []]) {
     for (const item of group) {
       if (!item.collision) continue;
       if (Array.isArray(item.collision)) {

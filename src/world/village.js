@@ -71,10 +71,11 @@
 import * as THREE from 'three';
 import { houseDoorGeometry } from '../player/houseDoors.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { LAYOUT_META, PLAZA, BUILDINGS, WALLS, PROPS, DOORS, LIGHTS, FURNITURE, SECRET_DOOR, KEYS, CANDLES, COBWEBS, INTERIOR_LIGHTS, FLOORS, STAIRS, GATE, FOREST, CEM_AREA, CEM_WALLS, CEM_GATE, CEM_REAR_GATE, CEM_PATHS, CEM_PROPS } from './layout.js';
+import { LAYOUT_META, PLAZA, BUILDINGS, WALLS, PROPS, DOORS, LIGHTS, FURNITURE, SECRET_DOOR, KEYS, CANDLES, COBWEBS, INTERIOR_LIGHTS, FLOORS, STAIRS, GATE, FOREST, CEM_AREA, CEM_WALLS, CEM_GATE, CEM_REAR_GATE, CEM_PATHS, CEM_PROPS, CRYPT, CRYPT_WALLS, CRYPT_PROPS } from './layout.js';
+import { SYMBOL_CELLS, SYMBOL_ATLAS_SIZE, paintSymbols } from './cryptSymbols.js';
 
 const EPS = 1e-9;
-const TILE = { stone: 4, roof: 4, wood: 2, earth: 2 }; // metres per rajola de textura (≈16 px/m)
+const TILE = { stone: 4, roof: 4, wood: 2, earth: 2, bedding: 2 }; // metres per rajola de textura (≈16 px/m)
 
 function fail(msg) {
   throw new Error(`[village.js] ${msg}`);
@@ -462,6 +463,33 @@ export function paintRug(px, w, h, pal, seed, centerWear) {
     }
   }
 }
+// ---------------------------------------------------------------------
+// ROBA DE LLIT VELLA (Fase D.3.1): lli gris descolorit amb franges de matalàs, taques d'humitat i greix irregulars, zones esgastades i
+// quatre fils trencats. Rajola de 32 × 32 px (2 m → ≈ 16 px/m, com la resta). Contrast baix: les taques són discretes.
+// ---------------------------------------------------------------------
+export const BEDDING_TILE = 32;
+export function paintBedding(px, w, h) {
+  const rnd = mulberry32(5301);
+  const base = 0xb9b7af; const tick = 0xa9a79f; const weave = 0xc2c0b7;
+  const blobs = []; // taques: [x, y, radi, color, força]
+  const stainCols = [0x8c7c5a, 0x766850, 0x9a8a66, 0x5e5240];
+  for (let i = 0; i < 6; i++) blobs.push({ x: rnd() * w, y: rnd() * h, r: 2 + rnd() * 3.5, c: stainCols[i % stainCols.length], k: 0.35 + rnd() * 0.3 });
+  const wear = []; for (let i = 0; i < 4; i++) wear.push({ x: rnd() * w, y: rnd() * h, r: 2 + rnd() * 3 });
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let c = (x % 8 < 2) ? tick : ((x + y) % 2 === 0 ? base : weave);        // franges de matalàs + trama
+      c = shade(c, 0.93 + rnd() * 0.14);
+      for (const b of blobs) {                                                  // taques irregulars (vora una mica més fosca)
+        const d = Math.hypot(x - b.x, y - b.y) + (rnd() - 0.5) * 1.6;
+        if (d < b.r) c = mixHex(c, b.c, b.k * (d > b.r - 1 ? 1.25 : 0.8));
+      }
+      for (const wv of wear) { const d = Math.hypot(x - wv.x, y - wv.y); if (d < wv.r && rnd() < 0.55) c = mixHex(c, 0xcfcdc4, 0.35); } // lli esgastat, més clar
+      if (rnd() < 0.015) c = shade(c, 0.62);                                    // brutícia / puntets
+      px(x, y, c);
+    }
+  }
+  for (let i = 0; i < 4; i++) { const y = Math.floor(rnd() * h); const x0 = Math.floor(rnd() * w); for (let k = 0; k < 4 + Math.floor(rnd() * 4); k++) px(x0 + k, y, 0x8d8b83); } // fils trencats
+}
 // Teranyines: atles de 3 dibuixos de 24×24 px (72×24). L'àpex és a la cantonada inferior esquerra (UV 0,0) de cada cel·la.
 // Els dos eixos (les vores que toquen les superfícies) són fils llargs; els radis no neixen a l'àpex (no fan un nus) i els
 // anells són segments rectes amb algun tall: línies d'1 píxel, irregulars i molt tènues.
@@ -619,7 +647,7 @@ export function paintEngrave(px) {
 
 
 function createTextures(enabled) {
-  const t = { stone: null, roof: null, wood: null, cobble: null, ivy: null, moss: null, grass: null, patch: null, glow: null, bark: null, leaf: null, moonPatch: null, door: null, pine: null, rugA: null, rugB: null, rugC: null, web: null, dirt: null, sign: null, engrave: null };
+  const t = { stone: null, roof: null, wood: null, cobble: null, ivy: null, moss: null, grass: null, patch: null, glow: null, bark: null, leaf: null, moonPatch: null, door: null, pine: null, rugA: null, rugB: null, rugC: null, bedding: null, web: null, dirt: null, sign: null, engrave: null, symbol: null };
   if (!enabled) return t;
   t.stone = makeTexture(64, 64, paintStone);
   t.roof = makeTexture(64, 64, paintRoof);
@@ -638,6 +666,7 @@ function createTextures(enabled) {
   t.rugA = makeTexture(RUG_SIZES.A[0], RUG_SIZES.A[1], (px, w, h) => paintRug(px, w, h, RUG_PALETTES.A, 5101, true));
   t.rugB = makeTexture(RUG_SIZES.B[0], RUG_SIZES.B[1], (px, w, h) => paintRug(px, w, h, RUG_PALETTES.B, 5102, false));
   t.rugC = makeTexture(RUG_SIZES.C[0], RUG_SIZES.C[1], (px, w, h) => paintRug(px, w, h, RUG_PALETTES.C, 5103, true));
+  t.bedding = makeTexture(BEDDING_TILE, BEDDING_TILE, paintBedding);
   t.web = makeTexture(WEB_CELL * 3, WEB_CELL, paintWeb);
   // Fase D.2 (cementiri): terra batuda, cartell CT2 i atles de gravats de les làpides
   t.dirt = makeTexture(32, 32, paintDirt);
@@ -648,6 +677,9 @@ function createTextures(enabled) {
     t.engrave.wrapS = THREE.ClampToEdgeWrapping; t.engrave.wrapT = THREE.ClampToEdgeWrapping;
     t.engrave.generateMipmaps = false; t.engrave.minFilter = THREE.NearestFilter;
   }
+  // Fase D.3: atles dels símbols de la cripta (campana, lluna, creu, sol); cel·les independents → sense mipmaps ni repetició
+  t.symbol = makeTexture(SYMBOL_ATLAS_SIZE[0], SYMBOL_ATLAS_SIZE[1], paintSymbols);
+  if (t.symbol) { t.symbol.wrapS = THREE.ClampToEdgeWrapping; t.symbol.wrapT = THREE.ClampToEdgeWrapping; t.symbol.generateMipmaps = false; t.symbol.minFilter = THREE.NearestFilter; }
   return t;
 }
 
@@ -670,10 +702,12 @@ function createMaterials(tex) {
     rugA: lam({ map: tex.rugA, alphaTest: 0.5, flatShading: false, color: tex.rugA ? 0xffffff : 0x36241f }),
     rugB: lam({ map: tex.rugB, alphaTest: 0.5, flatShading: false, color: tex.rugB ? 0xffffff : 0x393a22 }),
     rugC: lam({ map: tex.rugC, alphaTest: 0.5, flatShading: false, color: tex.rugC ? 0xffffff : 0x3a3126 }),
+    bedding: lam({ map: tex.bedding }),            // Fase D.3.1: matalàs i roba de llit de la casa C (sense transparència)
     web: lam({ map: tex.web, transparent: true, opacity: tex.web ? 0.6 : 0.2, alphaTest: 0.1, depthWrite: false, side: THREE.DoubleSide, flatShading: false }),
     // Fase D.2 (cementiri): terra, gravats (alpha-test sobre la làpida), cartell CT2 i camins de terra (decal sota els peus)
     earth: lam({ map: tex.dirt, color: tex.dirt ? 0xffffff : 0x6a6050 }),
     engrave: lam({ map: tex.engrave, alphaTest: 0.5, flatShading: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    symbol: lam({ map: tex.symbol, alphaTest: 0.5, flatShading: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     sign: lam({ map: tex.sign, color: tex.sign ? 0xffffff : 0x5e4a35, flatShading: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     dirt: new THREE.MeshLambertMaterial({
       map: tex.dirt, color: tex.dirt ? 0xa09280 : 0x5e5546, // terra una mica més fosca i càlida que la textura base
@@ -2520,15 +2554,25 @@ function drawFramed(b, item) {
         }
         break;
       }
-      case 'bed2': { // el CAPÇAL és cap a +Z (la paret)
+      case 'bed2': { // el CAPÇAL és cap a +Z (la paret). Fase D.3.1: somier de fusta + matalàs gris + roba de llit vella i bruta
         const hb = 0.75; // capçal (l'ampit de les finestres és a 0,8 m del terra del pis)
-        b.box('wood', { xMin, xMax, yMin: 0.18, yMax: 0.3, zMin, zMax }, WOOD_D);
+        const MATT = 0xa8a8a2; const SHEET = 0x8a8478; const BLANKET = 0x6c6254; const PILLOW = 0x9a9588;
+        b.box('wood', { xMin, xMax, yMin: 0.18, yMax: 0.3, zMin, zMax }, WOOD_D);                                                                          // somier
         for (const [x, z] of [[xMin, zMin], [xMax - 0.08, zMin], [xMin, zMax - 0.08], [xMax - 0.08, zMax - 0.08]]) b.box('wood', { xMin: x, xMax: x + 0.08, yMin: 0, yMax: 0.18, zMin: z, zMax: z + 0.08 }, shade(WOOD_D, 0.85));
-        b.box('wood', { xMin: xMin + 0.04, xMax: xMax - 0.04, yMin: 0.3, yMax: 0.42, zMin: zMin + 0.04, zMax: zMax - 0.04 }, 0x6e6458);                  // màrfega
-        b.box('wood', { xMin: xMin + 0.04, xMax: xMax - 0.04, yMin: 0.42, yMax: 0.46, zMin: zMin + 0.04, zMax: zMax - 0.6 }, CLOTH);                      // manta
-        b.box('wood', { xMin: xMin + 0.2, xMax: xMax - 0.2, yMin: 0.42, yMax: 0.52, zMin: zMax - 0.5, zMax: zMax - 0.1 }, 0x8a8478);                       // coixí
         b.box('wood', { xMin, xMax, yMin: 0.18, yMax: hb, zMin: zMax - 0.07, zMax }, WOOD_D);                                                              // capçal
         b.box('wood', { xMin, xMax, yMin: 0.18, yMax: 0.4, zMin, zMax: zMin + 0.06 }, WOOD_D);                                                             // peu
+        for (const [a0, a1] of [[xMin, xMin + 0.05], [xMax - 0.05, xMax]]) b.box('wood', { xMin: a0, xMax: a1, yMin: 0.3, yMax: 0.4, zMin: zMin + 0.06, zMax: zMax - 0.07 }, shade(WOOD_D, 0.92)); // barana lateral (es veu el marc de fusta)
+        const mx0 = xMin + 0.06; const mx1 = xMax - 0.06; const mz0 = zMin + 0.08; const mz1 = zMax - 0.09;
+        b.box('bedding', { xMin: mx0, xMax: mx1, yMin: 0.3, yMax: 0.45, zMin: mz0, zMax: mz1 }, MATT);                                                      // matalàs gris
+        b.box('bedding', { xMin: mx0 + 0.02, xMax: mx1 - 0.02, yMin: 0.45, yMax: 0.47, zMin: mz0 + 0.02, zMax: mz1 - 0.02 }, shade(MATT, 0.96));          // vora arrodonida
+        b.box('bedding', { xMin: mx0 - 0.015, xMax: mx1 + 0.015, yMin: 0.47, yMax: 0.5, zMin: mz0 + 0.05, zMax: mz1 - 0.62 }, BLANKET);                    // manta gastada sobre els peus
+        b.box('bedding', { xMin: mx0 - 0.02, xMax: mx0 + 0.04, yMin: 0.36, yMax: 0.5, zMin: mz0 + 0.1, zMax: mz1 - 0.7 }, shade(BLANKET, 0.88));           // pestanya penjant a l'oest
+        b.box('bedding', { xMin: mx1 - 0.04, xMax: mx1 + 0.02, yMin: 0.33, yMax: 0.5, zMin: mz0 + 0.3, zMax: mz1 - 0.8 }, shade(BLANKET, 0.82));           // pestanya penjant a l'est (més llarga)
+        b.box('bedding', { xMin: mx0 + 0.1, xMax: mx1 - 0.18, yMin: 0.5, yMax: 0.53, zMin: mz0 + 0.45, zMax: mz0 + 0.8 }, shade(BLANKET, 1.08));          // arrugues
+        b.box('bedding', { xMin: mx0 + 0.3, xMax: mx1 - 0.1, yMin: 0.5, yMax: 0.52, zMin: mz0 + 0.95, zMax: mz0 + 1.2 }, shade(BLANKET, 0.94));
+        b.box('bedding', { xMin: mx0 - 0.01, xMax: mx1 + 0.01, yMin: 0.47, yMax: 0.5, zMin: mz1 - 0.6, zMax: mz1 - 0.5 }, SHEET);                          // llençol doblegat per sobre de la manta
+        b.box('bedding', { xMin: mx0 + 0.18, xMax: mx1 - 0.18, yMin: 0.47, yMax: 0.57, zMin: mz1 - 0.44, zMax: mz1 - 0.06 }, PILLOW);                       // coixí aixafat
+        b.box('bedding', { xMin: mx0 + 0.22, xMax: mx1 - 0.24, yMin: 0.57, yMax: 0.59, zMin: mz1 - 0.38, zMax: mz1 - 0.12 }, shade(PILLOW, 0.92));
         break;
       }
       case 'nightstand': {
@@ -4088,21 +4132,29 @@ function buildCemeteryGate(mats, parent) {
 }
 
 // ---------------------------------------------------------------------
-// CARTELL CT2 «CEMENTIRI →» (carreró est): pal de fusta, taulell inclinat amb el text pixel-art mirant a la plaça (cap al sud) i la fletxa a l'est.
-// Col·lisió (layout): cercle de radi 0,2 m al peu del pal; el pal visual és més prim (≤ 0,115 m) i el taulell està a 1,75–2,2 m.
+// CARTELL CT2 «CEMENTIRI →» (carreró est). Fase D.3.1: el taulell va ENGANXAT a la cara sud del mur M-N1 (la paret que té al darrere, z = −9),
+// amb la cara posterior just contra la pedra (ni flotant ni dins del mur) i dues brides de ferro cargolades a la paret. El text mira cap al
+// sud, cap a la plaça, des d'on s'arriba. El pal original (collider aprovat: cercle r 0,2 a (5,5; −7,6)) es manté al seu lloc com a pal vell
+// sense taulell. El taulell conserva mides, fusta i text pixel-art de la D.2.
 // ---------------------------------------------------------------------
+const SIGN_SHIFT_X = 1.0;
 function cemSign(b, item) {
-  const r = b.rnd; const v = item.visual; const { x, z } = v.center; const bd = v.board;
+  const r = b.rnd; const v = item.visual; const { x: px, z } = v.center; const bd = v.board;
+  const x = px + SIGN_SHIFT_X;                               // el taulell va 1 m a l'est del pal perquè el pal no tapi el text vist des del sud
   const capH = 0.12; const postH = v.height - capH;
   const post = new THREE.CylinderGeometry(0.092, 0.112, postH, 7, 1); scaleUV(post, 1.2, postH / 2);
-  b.add('wood', post, x, postH / 2, z, { tint: jit(0x9a8c7c, 0.08, r), rotY: r() * 3 });
-  b.add('wood', new THREE.ConeGeometry(0.13, capH, 7), x, postH + capH / 2, z, { tint: jit(0x8a7d6e, 0.08, r) });
-  const bz = z + 0.112 + bd.thickness / 2;                   // el taulell queda just a la cara sud del pal
+  b.add('wood', post, px, postH / 2, z, { tint: jit(0x9a8c7c, 0.08, r), rotY: r() * 3 });
+  b.add('wood', new THREE.ConeGeometry(0.13, capH, 7), px, postH + capH / 2, z, { tint: jit(0x8a7d6e, 0.08, r) });
+  const wall = WALLS.find((q) => q.id === 'M-N1') || fail('CT2: falta el mur M-N1');
+  const wz = wall.visual.footprint.zMax;                     // cara sud del mur (z = −9)
+  const bz = wz + bd.thickness / 2;                          // cara posterior del taulell exactament sobre la pedra
   const by = (bd.bottom + bd.top) / 2; const tilt = -0.03;   // lleugerament caigut cap a l'est
   b.add('wood', texBox(bd.width, bd.height, bd.thickness, TILE.wood, r).rotateZ(tilt), x, by, bz, { tint: 0x8e8070 });
   b.add('sign', new THREE.PlaneGeometry(bd.width, bd.height).rotateZ(tilt).translate(0, 0, bd.thickness / 2 + 0.004), x, by, bz, {});
-  for (const dy of [-0.17, 0.17]) b.box('plainD', { xMin: x - 0.14, xMax: x + 0.14, yMin: by + dy - 0.022, yMax: by + dy + 0.022, zMin: z + 0.112, zMax: z + 0.112 + bd.thickness + 0.018 }, jit(pickOf(CEM_IRON, r), 0.1, r)); // brides de ferro al pal
-  b.add('moss', new THREE.PlaneGeometry(0.5, 0.25), x, 0.13, z + 0.12, { tint: jit(0xffffff, 0.1, r) });
+  const sd = bd.thickness + 0.018;                           // les brides sobresurten 1,8 cm del taulell i giren amb ell
+  for (const dy of [-0.17, 0.17]) b.add('plainD', new THREE.BoxGeometry(1.24, 0.044, sd).translate(0, dy, 0).rotateZ(tilt), x, by, wz + sd / 2, { tint: jit(pickOf(CEM_IRON, r), 0.1, r) });
+  for (const dx of [-0.58, 0.58]) for (const dy of [-0.17, 0.17]) b.add('plainD', new THREE.BoxGeometry(0.05, 0.06, 0.012).translate(dx, dy, 0).rotateZ(tilt), x, by, wz + sd + 0.006, { tint: IRON_D }); // caps de clau
+  b.add('moss', new THREE.PlaneGeometry(0.5, 0.25), px, 0.13, z + 0.12, { tint: jit(0xffffff, 0.1, r) });
 }
 
 // ---------------------------------------------------------------------
@@ -4326,6 +4378,340 @@ function buildCemetery(mats, parent) {
 }
 
 // ---------------------------------------------------------------------
+// FASE D.3 — CRIPTA SECRETA (geometria). Dades a layout.js (CRYPT, CRYPT_WALLS, CRYPT_PROPS); lògica a src/player/crypt.js.
+//   Dos grups FORA de `root` (així les proves i el pressupost del poble no canvien):
+//     · CryptBox: pou de l'escala (parets, teulada, placa de la porta, folre del pas per la paret de l'església). Sempre visible.
+//     · CryptInterior: escala, sales, altar, sarcòfag, espelmes. Només es dibuixa quan el jugador baixa (el poble s'amaga quan és ben a sota).
+//   Pedra molt fosca (to per vèrtex), una sola llum puntual càlida que es mou al racó d'espelmes més proper, flames sense llum.
+//   La paret de l'església NO es modifica: el pas es folra per dins del seu gruix (CryptBox) i el fons s'amaga amb una placa fosca.
+// ---------------------------------------------------------------------
+const CR = { stone: 0x50565f, stoneHi: 0x5f6571, floor: 0x3a3e46, ceil: 0x2e3239, deep: 0x1a1c22, moss: 0x6f8f55, iron: 0x23252b, shaft: 0x5a5e69 };
+
+// Quadre d'un símbol (amplada w; alçada segons les proporcions del mapa de bits) amb les UV de la seva cel·la de l'atles.
+function symbolQuad(name, w) {
+  const [cx, cy, cw, ch] = SYMBOL_CELLS[name]; const [W, H] = SYMBOL_ATLAS_SIZE;
+  const g = new THREE.PlaneGeometry(w, (w * ch) / cw);
+  const uv = g.attributes.uv;
+  const u0 = cx / W; const u1 = (cx + cw) / W; const v0 = 1 - (cy + ch) / H; const v1 = 1 - cy / H;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) < 0.5 ? u0 : u1, uv.getY(i) < 0.5 ? v0 : v1);
+  return g;
+}
+
+// Escala descendent: només petjades i contrapetjades visibles (4 triangles per graó). Cada graó baixa `rise` i avança `tread` cap al nord (−Z).
+function stairStepsGeometry(st, tile) {
+  const pos = []; const uvs = [];
+  const quad = (a, b, c, d, ua, ub, uc, ud) => { pos.push(...a, ...b, ...c, ...a, ...c, ...d); uvs.push(...ua, ...ub, ...uc, ...ua, ...uc, ...ud); };
+  const { xMin: x0, xMax: x1 } = st; const w = x1 - x0;
+  for (let i = 1; i <= st.steps; i++) {
+    const yPrev = st.topY - st.rise * (i - 1); const y = st.topY - st.rise * i;
+    const zNear = st.topZ - st.tread * (i - 1); const zFar = st.topZ - st.tread * i;
+    quad([x0, y, zNear], [x1, y, zNear], [x1, y, zFar], [x0, y, zFar], [0, 0], [w / tile, 0], [w / tile, st.tread / tile], [0, st.tread / tile]); // petjada (cap amunt)
+    quad([x0, yPrev, zNear], [x1, yPrev, zNear], [x1, y, zNear], [x0, y, zNear], [0, st.rise / tile], [w / tile, st.rise / tile], [w / tile, 0], [0, 0]); // contrapetjada (cap al nord)
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
+// Paret rectangular (x de xa a xb, y de y0 a y1) amb forats d'arc de mig punt, extrudida `thick`. Es col·loca amb b.add.
+function archWallGeometry(xa, xb, y0, y1, thick, arches) {
+  const s = new THREE.Shape();
+  s.moveTo(xa, y0); s.lineTo(xb, y0); s.lineTo(xb, y1); s.lineTo(xa, y1); s.lineTo(xa, y0);
+  for (const a of arches) s.holes.push(gothicHole(a.cx, a.width, a.y0, a.straight, a.apex));
+  return scaleUV(new THREE.ExtrudeGeometry(s, { depth: thick, bevelEnabled: false, curveSegments: 4 }), 1 / TILE.stone);
+}
+
+function flatQuad(w, d, up, tile = TILE.stone) { const g = new THREE.PlaneGeometry(w, d); g.rotateX(up ? -Math.PI / 2 : Math.PI / 2); return scaleUV(g, w / tile, d / tile); }
+
+// Clau de ferro negre amb una petita creu a l'anella (KEY-C). Llargada ≈ 0,19 m, jeu horitzontal.
+function buildKeyCMesh(mats, seed) {
+  const g = makeGroup('KEY-C', 'KEY-C'); const inner = makeGroup('KEY-C-mesh', 'KEY-C'); g.add(inner);
+  const b = new Builder(inner, mats, seed); const tint = 0x2b2d35;
+  b.add('plain', new THREE.TorusGeometry(0.03, 0.009, 5, 10), -0.1, 0, 0, { tint });
+  b.box('plain', { xMin: -0.07, xMax: 0.09, yMin: -0.007, yMax: 0.007, zMin: -0.007, zMax: 0.007 }, tint);
+  b.box('plain', { xMin: 0.06, xMax: 0.075, yMin: -0.03, yMax: 0.007, zMin: -0.006, zMax: 0.006 }, tint);
+  b.box('plain', { xMin: 0.08, xMax: 0.09, yMin: -0.022, yMax: 0.007, zMin: -0.006, zMax: 0.006 }, tint);
+  b.box('plain', { xMin: -0.104, xMax: -0.096, yMin: -0.02, yMax: 0.02, zMin: -0.012, zMax: 0.012 }, 0x8a8478); // creu (pal vertical)
+  b.box('plain', { xMin: -0.118, xMax: -0.082, yMin: -0.004, yMax: 0.004, zMin: -0.012, zMax: 0.012 }, 0x8a8478); // creu (travesser)
+  b.finish();
+  inner.rotation.x = -Math.PI / 2;
+  return g;
+}
+
+// Tauleta + caixa antiga de la casa C (pis superior). Es dibuixa dins del grup del poble (`root`).
+function buildClueBox(mats, parent) {
+  const group = makeGroup('ClueBox', CRYPT.clue.id);
+  const tbl = CRYPT_PROPS.find((p) => p.id === CRYPT.clue.table).visual;
+  const f = tbl.footprint; const y0 = 2.75; const h = tbl.height;
+  const b = new Builder(group, mats, 9300);
+  b.box('wood', { xMin: f.xMin, xMax: f.xMax, yMin: y0 + h - 0.05, yMax: y0 + h, zMin: f.zMin, zMax: f.zMax }, WOOD_L);
+  for (const [lx, lz] of [[f.xMin + 0.02, f.zMin + 0.02], [f.xMax - 0.07, f.zMin + 0.02], [f.xMin + 0.02, f.zMax - 0.07], [f.xMax - 0.07, f.zMax - 0.07]]) {
+    b.box('wood', { xMin: lx, xMax: lx + 0.05, yMin: y0, yMax: y0 + h - 0.05, zMin: lz, zMax: lz + 0.05 }, WOOD_D);
+  }
+  b.box('wood', { xMin: f.xMin + 0.05, xMax: f.xMax - 0.05, yMin: y0 + 0.25, yMax: y0 + 0.28, zMin: f.zMin + 0.05, zMax: f.zMax - 0.05 }, shade(WOOD_D, 0.85));
+  const c = CRYPT.clue; const top = c.y; const hw = c.w / 2; const hd = c.d / 2;
+  const WOODX = 0x3f2a1c; const BRASS = 0x9a7440;
+  b.box('wood', { xMin: c.center.x - hw, xMax: c.center.x + hw, yMin: top, yMax: top + c.h * 0.62, zMin: c.center.z - hd, zMax: c.center.z + hd }, WOODX);          // cos
+  b.box('wood', { xMin: c.center.x - hw - 0.006, xMax: c.center.x + hw + 0.006, yMin: top + c.h * 0.62, yMax: top + c.h, zMin: c.center.z - hd - 0.006, zMax: c.center.z + hd + 0.006 }, shade(WOODX, 1.15)); // tapa
+  for (const dx of [-0.09, 0.09]) b.box('plainD', { xMin: c.center.x + dx - 0.012, xMax: c.center.x + dx + 0.012, yMin: top, yMax: top + c.h + 0.003, zMin: c.center.z - hd - 0.009, zMax: c.center.z + hd + 0.009 }, IRON_D); // cintes de ferro
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box('plainD', { xMin: c.center.x + sx * hw - 0.02, xMax: c.center.x + sx * hw + 0.02, yMin: top + c.h - 0.025, yMax: top + c.h + 0.005, zMin: c.center.z + sz * hd - 0.02, zMax: c.center.z + sz * hd + 0.02 }, BRASS); // cantoneres de llautó
+  b.box('plainD', { xMin: c.center.x - 0.025, xMax: c.center.x + 0.025, yMin: top + c.h * 0.4, yMax: top + c.h * 0.8, zMin: c.center.z + hd + 0.004, zMax: c.center.z + hd + 0.016 }, BRASS); // pany
+  // Els tres símbols de la pista gravats a la tapa (de l'oest a l'est: campana, lluna, creu)
+  c.order.forEach((name, i) => {
+    const g = symbolQuad(name, 0.062); g.rotateX(-Math.PI / 2);
+    b.add('symbol', g, c.center.x + (i - 1) * 0.1, top + c.h + 0.004, c.center.z, { tint: 0xc9a85c });
+  });
+  b.finish();
+  const glint = new THREE.Sprite(mats.keyGlow); // un petit centelleig perquè la caixa cridi l'atenció (no il·lumina res)
+  glint.scale.set(0.3, 0.3, 1); glint.position.set(c.center.x, top + c.h + 0.06, c.center.z);
+  group.add(glint);
+  parent.add(group);
+  return group;
+}
+
+function buildCrypt(mats, scene) {
+  const D = CRYPT; const FY = D.floorY;
+  const cryptRoot = makeGroup('Crypt', 'CRYPT');
+  const box = makeGroup('CryptBox', 'CRYPT'); const interior = makeGroup('CryptInterior', 'CRYPT');
+  cryptRoot.add(box); cryptRoot.add(interior);
+  const flames = [];
+
+  // ===== CryptBox: pou de l'escala (superfície) =====
+  const bb = new Builder(box, mats, 9400);
+  const sh = D.shaft;
+  const wallTint = CR.shaft;
+  for (const w of CRYPT_WALLS.filter((q) => /^CR-(SH|BOX)/.test(q.id))) {
+    const f = w.visual.footprint; const yMin = w.level === 0 ? 0 : FY; const yMax = D.shaft.roofY;
+    bb.box('stone', { xMin: f.xMin, xMax: f.xMax, yMin, yMax, zMin: f.zMin, zMax: f.zMax }, wallTint);
+  }
+  const roofShape = new THREE.Shape(); roofShape.moveTo(-1.55, 0); roofShape.lineTo(1.55, 0); roofShape.lineTo(0, 0.95); roofShape.lineTo(-1.55, 0);
+  const roofG = scaleUV(new THREE.ExtrudeGeometry(roofShape, { depth: 6.4, bevelEnabled: false }), 1 / TILE.roof);
+  bb.add('roof', roofG, 0, sh.roofY, -27.4, { tint: 0x6b6f7b });
+  // Placa de la cara sud del pou (la paret de l'església no es toca): marc d'arc de mig punt + fons negre
+  const plate = new THREE.Shape(); plate.moveTo(-0.9, 0); plate.lineTo(0.9, 0); plate.lineTo(0.9, sh.roofY); plate.lineTo(-0.9, sh.roofY); plate.lineTo(-0.9, 0);
+  plate.holes.push(gothicHole(0, 1.4, 0, 1.9, 0.7));
+  bb.add('stone', scaleUV(new THREE.ExtrudeGeometry(plate, { depth: 0.06, bevelEnabled: false, curveSegments: 4 }), 1 / TILE.stone), 0, 0, -21.06, { tint: 0x474c56 });
+  // Replà de dalt i folre del pas dins del gruix de CH-N-B (z −21→−20,4): muntants, llinda i terra
+  bb.add('floor', flatQuad(1.8, 1.2, true, 8), 0, 0.012, -21.6, { tint: CR.floor });
+  bb.add('floor', flatQuad(1.4, 0.6, true, 8), 0, 0.014, -20.7, { tint: CR.floor });
+  for (const sx of [-1, 1]) { const g = new THREE.PlaneGeometry(0.6, 2.3); g.rotateY(sx < 0 ? Math.PI / 2 : -Math.PI / 2); bb.add('plain', g, sx * 0.7, 1.15, -20.7, { tint: CR.stone }); }
+  { const g = new THREE.PlaneGeometry(1.4, 0.6); g.rotateX(Math.PI / 2); bb.add('plain', g, 0, 2.3, -20.7, { tint: CR.ceil }); }
+  // Fons del pou damunt la boca de l'antecambra (z −26,7): tanca el pou per sobre de la volta
+  bb.add('stone', new THREE.PlaneGeometry(1.8, sh.roofY + 0.75), 0, (sh.roofY - 0.75) / 2, -26.7, { tint: CR.shaft });
+  bb.finish();
+
+  // ===== CryptInterior =====
+  const bi = new Builder(interior, mats, 9500);
+  const R = D.rooms;
+  // Escala
+  bi.add('stone', stairStepsGeometry({ ...D.stair }, TILE.stone), 0, 0, 0, { tint: CR.stoneHi });
+  // Terres (cobble fosc) i sostres
+  const floors = [[R.ANT.rect], [D.openings.antSala], [R.SALA.rect], [D.openings.arc], [R.GUARDIA.rect]].map(([r]) => r);
+  for (const r of floors) bi.add('floor', flatQuad(r.xMax - r.xMin, r.zMax - r.zMin, true, 8), (r.xMin + r.xMax) / 2, FY + 0.005, (r.zMin + r.zMax) / 2, { tint: CR.floor });
+  const ceil = (r, y) => bi.add('stone', flatQuad(r.xMax - r.xMin, r.zMax - r.zMin, false), (r.xMin + r.xMax) / 2, y, (r.zMin + r.zMax) / 2, { tint: CR.ceil });
+  ceil(R.ANT.rect, R.ANT.ceilingY); ceil(D.openings.antSala, R.ANT.ceilingY); ceil(R.SALA.rect, R.SALA.ceilingY); ceil(D.openings.arc, R.GUARDIA.ceilingY); ceil(R.GUARDIA.rect, R.GUARDIA.ceilingY);
+  // Parets massisses (les que no tenen obertura)
+  for (const w of CRYPT_WALLS.filter((q) => q.visual.draw !== false && q.level === -1 && !/^CR-(DIV|ARC)/.test(q.id))) {
+    const f = w.visual.footprint;
+    bi.box('stone', { xMin: f.xMin, xMax: f.xMax, yMin: FY, yMax: D.ceilingY, zMin: f.zMin, zMax: f.zMax }, CR.stone);
+  }
+  // Mur ANT/SALA amb el pas (arc d'1,6 m) i mur de l'arc cap a la sala del guardià (1,6 m)
+  const arch = (cx) => ({ cx, width: 1.6, y0: FY, straight: 1.3, apex: 0.75 });
+  bi.add('stone', archWallGeometry(-6.4, 3.0, FY, D.ceilingY, 0.4, [arch(0)]), 0, 0, -30.4, { tint: CR.stone });
+  bi.add('stone', archWallGeometry(30.4, 35.6, FY, D.ceilingY, 0.4, [arch(33.8)]), -6.4, 0, 0, { rotY: Math.PI / 2, tint: CR.stone }); // coordenades locals: x local = −z món
+  // Pilars (r 0,3) amb base i capitell, bigues i nervis baixos a la gran sala
+  const cH = R.SALA.ceilingY - FY;
+  for (const p of CRYPT_PROPS.filter((q) => q.type === 'pillar')) {
+    const { x, z } = p.visual.center;
+    bi.add('stone', new THREE.CylinderGeometry(0.3, 0.3, cH, 8), x, FY + cH / 2, z, { tint: CR.stoneHi });
+    bi.box('stone', { xMin: x - 0.4, xMax: x + 0.4, yMin: FY, yMax: FY + 0.22, zMin: z - 0.4, zMax: z + 0.4 }, CR.stone);
+    bi.box('stone', { xMin: x - 0.4, xMax: x + 0.4, yMin: R.SALA.ceilingY - 0.2, yMax: R.SALA.ceilingY, zMin: z - 0.4, zMax: z + 0.4 }, CR.stone);
+  }
+  const by = R.SALA.ceilingY;
+  for (const x of [-2.8, 1.0]) bi.box('stone', { xMin: x - 0.17, xMax: x + 0.17, yMin: by - 0.55, yMax: by, zMin: -35.6, zMax: -30.4 }, CR.stone);
+  for (const [x0, x1] of [[-6, -2.97], [-2.63, 0.83], [1.17, 2.6]]) bi.box('stone', { xMin: x0, xMax: x1, yMin: by - 0.45, yMax: by, zMin: -32.57, zMax: -32.23 }, CR.stone);
+  // Nínxols (visual): placa fosca + llinda + ampit enganxats a la cara de la paret. (x, z) = punt de la paret; rotY = orientació de la cara (+Z local = normal cap a la sala).
+  const niche = (x, z, rotY, w) => {
+    const h = 0.9; const yc = FY + 0.5 + h / 2;
+    bi.setFrame({ x, y: 0, z, rotY });
+    bi.add('plain', new THREE.PlaneGeometry(w, h), 0, yc, 0.004, { tint: 0x08090c });
+    bi.box('stone', { xMin: -w / 2 - 0.08, xMax: w / 2 + 0.08, yMin: yc + h / 2, yMax: yc + h / 2 + 0.1, zMin: 0, zMax: 0.08 }, CR.stoneHi);
+    bi.box('stone', { xMin: -w / 2 - 0.05, xMax: w / 2 + 0.05, yMin: yc - h / 2 - 0.07, yMax: yc - h / 2, zMin: 0, zMax: 0.1 }, CR.stoneHi);
+    bi.setFrame(null);
+  };
+  const H = Math.PI / 2;
+  niche(-4.2, -35.6, 0, 0.6); niche(-2.7, -35.6, 0, 0.6); niche(1.95, -35.6, 0, 0.5);   // gran sala, paret nord
+  niche(2.6, -34.2, -H, 0.6); niche(2.6, -31.4, -H, 0.6);                               // gran sala, paret est
+  niche(-6.0, -31.5, H, 0.6);                                                           // gran sala, paret oest (tram sud de l'arc)
+  niche(-4.7, -30.4, Math.PI, 0.6); niche(-3.0, -30.4, Math.PI, 0.6);                   // gran sala, paret sud (mur ANT/SALA)
+  niche(2.2, -28.4, -H, 0.55);                                                          // antecambra, paret est
+  niche(-10.4, -34.2, H, 0.6); niche(-10.4, -32.3, H, 0.6);                             // sala del guardià, paret oest
+  // Altar dels tres discs: bloc, llosa, estela amb tres forats circulars i símbols
+  const A = CRYPT_PROPS.find((q) => q.id === 'CR-ALT').visual.footprint;
+  bi.box('stone', { xMin: A.xMin - 0.05, xMax: A.xMax + 0.05, yMin: FY, yMax: FY + 0.18, zMin: A.zMin, zMax: A.zMax + 0.05 }, CR.stone);
+  bi.box('stone', { xMin: A.xMin, xMax: A.xMax, yMin: FY + 0.18, yMax: FY + 0.92, zMin: A.zMin, zMax: A.zMax }, CR.stoneHi);
+  bi.box('stone', { xMin: A.xMin - 0.07, xMax: A.xMax + 0.07, yMin: FY + 0.92, yMax: FY + 1.0, zMin: A.zMin, zMax: A.zMax + 0.07 }, CR.stoneHi);
+  bi.box('stone', { xMin: A.xMin + 0.05, xMax: A.xMax - 0.05, yMin: FY + 1.0, yMax: FY + 2.3, zMin: A.zMin, zMax: A.zMin + 0.25 }, CR.stone);
+  const P = D.puzzle;
+  for (const dx of P.discX) {
+    const g = new THREE.CylinderGeometry(P.discR + 0.05, P.discR + 0.05, 0.03, 14); g.rotateX(Math.PI / 2);
+    bi.add('plain', g, dx, FY + P.discY, A.zMin + 0.25 + 0.012, { tint: 0x0d0e12 });
+    bi.add('plainD', new THREE.ConeGeometry(0.03, 0.06, 3), dx, FY + P.discY + P.discR + 0.1, A.zMin + 0.27, { tint: 0xb59b5a, rotY: 0 });
+  }
+  bi.finish();
+
+  // --- Discs (3 pivots amb matriu viva) ---
+  const startIdx = P.start.map((s) => P.symbols.indexOf(s));
+  const discs = []; const rings = [];
+  P.discX.forEach((dx, i) => {
+    const piv = markDynamic(makeGroup(`CR-DISC-${i}`, 'CR-ALT'));
+    piv.position.set(dx, FY + P.discY, P.discZ);
+    const b = new Builder(piv, mats, 9600 + i);
+    const g = new THREE.CylinderGeometry(P.discR, P.discR, 0.08, 14); g.rotateX(Math.PI / 2);
+    b.add('stone', g, 0, 0, 0, { tint: 0x6b7180 });
+    P.symbols.forEach((name, j) => {
+      const phi = Math.PI / 2 - (j * Math.PI) / 2; const rr = 0.125;
+      const q = symbolQuad(name, 0.095); q.rotateZ(phi - Math.PI / 2);
+      b.add('symbol', q, Math.cos(phi) * rr, Math.sin(phi) * rr, 0.042, { tint: 0xd2c08a });
+    });
+    b.finish();
+    piv.rotation.z = (startIdx[i] * Math.PI) / 2;
+    interior.add(piv);
+    discs.push(piv);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(P.discR + 0.015, P.discR + 0.04, 14), mats.flame);
+    ring.position.set(dx, FY + P.discY, P.discZ + 0.045); ring.visible = false; ring.name = `CR-RING-${i}`;
+    interior.add(ring); rings.push(ring);
+  });
+  const marker = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.014, 0.014), mats.flame);
+  markDynamic(marker); marker.position.set(0, FY + P.discY - P.discR - 0.09, P.discZ + 0.05); marker.visible = false; marker.name = 'CR-MARKER';
+  interior.add(marker);
+
+  // --- Sarcòfag del guardià ---
+  const S = CRYPT_PROPS.find((q) => q.id === 'CR-SARC').visual.footprint; const SH = 0.85;
+  const sb = new Builder(interior, mats, 9700);
+  sb.box('stone', { xMin: S.xMin, xMax: S.xMax, yMin: FY, yMax: FY + 0.25, zMin: S.zMin, zMax: S.zMax }, CR.stoneHi);
+  sb.box('stone', { xMin: S.xMin, xMax: S.xMin + 0.12, yMin: FY + 0.25, yMax: FY + SH, zMin: S.zMin, zMax: S.zMax }, CR.stoneHi);
+  sb.box('stone', { xMin: S.xMax - 0.12, xMax: S.xMax, yMin: FY + 0.25, yMax: FY + SH, zMin: S.zMin, zMax: S.zMax }, CR.stoneHi);
+  sb.box('stone', { xMin: S.xMin + 0.12, xMax: S.xMax - 0.12, yMin: FY + 0.25, yMax: FY + SH, zMin: S.zMin, zMax: S.zMin + 0.12 }, CR.stoneHi);
+  sb.box('stone', { xMin: S.xMin + 0.12, xMax: S.xMax - 0.12, yMin: FY + 0.25, yMax: FY + SH, zMin: S.zMax - 0.12, zMax: S.zMax }, CR.stoneHi);
+  sb.box('wood', { xMin: S.xMin + 0.16, xMax: S.xMax - 0.16, yMin: FY + 0.25, yMax: FY + 0.6, zMin: S.zMin + 0.16, zMax: S.zMax - 0.16 }, 0x6b665a); // sudari
+  sb.finish();
+  const scx = (S.xMin + S.xMax) / 2; const scz = (S.zMin + S.zMax) / 2;
+  const lid = markDynamic(makeGroup('CR-SARC-lid', 'CR-SARC'));
+  lid.position.set(scx, FY + SH, scz);
+  {
+    const lb = new Builder(lid, mats, 9710);
+    lb.box('stone', { xMin: -0.55, xMax: 0.55, yMin: 0, yMax: 0.12, zMin: -1.15, zMax: 1.15 }, 0x646a78);
+    lb.box('stone', { xMin: -0.42, xMax: 0.42, yMin: 0.12, yMax: 0.19, zMin: -1.0, zMax: 1.0 }, 0x585e6b);
+    lb.box('plainD', { xMin: -0.04, xMax: 0.04, yMin: 0.19, yMax: 0.205, zMin: -0.55, zMax: 0.65 }, 0x1b1c21);  // creu en relleu: pal
+    lb.box('plainD', { xMin: -0.2, xMax: 0.2, yMin: 0.19, yMax: 0.205, zMin: -0.3, zMax: -0.22 }, 0x1b1c21);   // creu: travesser
+    lb.finish();
+  }
+  interior.add(lid);
+  const latch = markDynamic(makeGroup('CR-SARC-latch', 'CR-SARC'));      // pany de ferro a la cara est (la que mira el jugador)
+  latch.position.set(S.xMax + 0.01, FY + SH - 0.06, scz);
+  { const lb = new Builder(latch, mats, 9720); lb.box('plainD', { xMin: 0, xMax: 0.05, yMin: -0.04, yMax: 0.04, zMin: -0.36, zMax: 0.36 }, 0x2a2c33); lb.finish(); }
+  interior.add(latch);
+  const rune = markDynamic(new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.34, 0.05), mats.flame));
+  rune.position.set(S.xMax + 0.008, FY + 0.5, scz); rune.visible = false; rune.name = 'CR-SARC-rune';
+  interior.add(rune);
+  const keyC = buildKeyCMesh(mats, 9730);
+  keyC.position.set(D.keyC.pos.x, D.keyC.y, D.keyC.pos.z); keyC.rotation.y = 0.4; keyC.visible = false;
+  interior.add(keyC);
+  const keyGlint = new THREE.Sprite(mats.keyGlow); keyGlint.scale.set(0.35, 0.35, 1); keyGlint.position.set(D.keyC.pos.x, D.keyC.y + 0.04, D.keyC.pos.z); keyGlint.visible = false;
+  interior.add(keyGlint);
+
+  // --- Espelmes, lloses gravades, molsa, esquerdes, teranyines ---
+  const bd = new Builder(interior, mats, 9800);
+  for (const c of D.candles) {
+    if (c.on === 'wall') bd.box('plainD', { xMin: -0.9, xMax: -0.72, yMin: c.y - 0.04, yMax: c.y, zMin: c.z - 0.05, zMax: c.z + 0.05 }, CR.iron);
+    if (c.on === 'ledge') bd.box('stone', { xMin: -2.2, xMax: -2.04, yMin: c.y - 0.05, yMax: c.y, zMin: c.z - 0.1, zMax: c.z + 0.1 }, CR.stoneHi);
+    candle(bd, c.x, c.y, c.z, flames, 0.11);
+  }
+  for (const [sx, sz, rot, name] of [[-4.7, -33.6, 0.05, 'cross'], [-4.7, -31.6, -0.04, 'cross'], [1.95, -33.8, 0.03, 'cross']]) { // lloses de terra amb creu gravada
+    bd.add('stone', texBox(0.8, 0.035, 1.9, TILE.stone, bd.rnd), sx, FY + 0.018, sz, { tint: 0x30343b, rotY: rot });
+    const [cx, cy, cw, ch] = ENGRAVE_CELLS[name]; const [W, H] = ENGRAVE_SIZE;
+    const g = new THREE.PlaneGeometry(0.28, (0.28 * ch) / cw); g.rotateX(-Math.PI / 2);
+    const uv = g.attributes.uv; const u0 = cx / W; const u1 = (cx + cw) / W; const v0 = 1 - (cy + ch) / H; const v1 = 1 - cy / H;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) < 0.5 ? u0 : u1, uv.getY(i) < 0.5 ? v0 : v1);
+    bd.add('engrave', g, sx, FY + 0.037, sz + 0.4, { tint: 0x9a9aa4, rotY: rot });
+  }
+  for (const [x, y, z, ry, w] of [ // molsa a la base de les parets (cartes alpha)
+    [-5.95, 0.3, -32.0, Math.PI / 2, 1.2], [2.55, 0.3, -33.2, -Math.PI / 2, 1.0], [-3.4, 0.3, -35.55, 0, 1.3], [1.7, 0.3, -30.45, Math.PI, 0.9],
+    [-2.15, 0.3, -27.8, Math.PI / 2, 0.9], [-10.35, 0.3, -33.0, Math.PI / 2, 1.3], [-8.0, 0.3, -35.55, 0, 1.0], [-0.85, 2.5, -23.6, Math.PI / 2, 1.1],
+  ]) bd.add('moss', new THREE.PlaneGeometry(w, 0.6), x, FY + y, z, { rotY: ry, tint: CR.moss });
+  for (const [x, y, z, ry, len] of [ // esquerdes: franges fosques
+    [-4.4, 1.5, -35.59, 0, 1.1], [2.59, 1.2, -32.0, -Math.PI / 2, 1.0], [-6.0 + 0.01, 1.8, -31.2, Math.PI / 2, 0.8], [-10.39, 1.4, -34.5, Math.PI / 2, 0.9], [1.6, 1.7, -30.41, Math.PI, 0.9], [-0.86, 1.5, -26.0, Math.PI / 2, 1.0],
+  ]) {
+    const g = new THREE.PlaneGeometry(0.035, len); bd.add('plainD', g, x, FY + y, z, { rotY: ry, tint: 0x07080b });
+    bd.add('plainD', new THREE.PlaneGeometry(0.03, len * 0.5), x + (ry === 0 || ry === Math.PI ? 0.06 : 0), FY + y - len * 0.45, z + (ry === 0 || ry === Math.PI ? 0 : 0.06), { rotY: ry, tint: 0x07080b });
+  }
+  for (const [x, y, z, ry] of [[2.55, -0.45, -35.55, -Math.PI / 4], [-5.95, -0.8, -30.45, Math.PI / 4 + Math.PI / 2], [-10.35, -0.7, -35.55, Math.PI / 4]]) bd.add('web', new THREE.PlaneGeometry(0.9, 0.9), x, y, z, { rotY: ry });
+  bd.finish();
+  const sprites = [];
+  for (const [x, y, z] of flames) { const sp = new THREE.Sprite(mats.glowSoft); sp.scale.set(0.34, 0.34, 1); sp.position.set(x, y, z); interior.add(sp); sprites.push(sp); }
+
+  // Reixa baixa decorativa, OBERTA: dos batents arrimats als muntants de l'arc (z −34,6→−34,3 i −33,3→−33). Cap col·lisió; el pas queda lliure.
+  const gb = new Builder(interior, mats, 9850);
+  for (const [z0, z1] of [[-34.6, -34.3], [-33.3, -33.0]]) {
+    gb.box('plainD', { xMin: -6.22, xMax: -6.18, yMin: FY, yMax: FY + 0.95, zMin: z0, zMax: z0 + 0.04 }, CR.iron);
+    gb.box('plainD', { xMin: -6.22, xMax: -6.18, yMin: FY, yMax: FY + 0.95, zMin: z1 - 0.04, zMax: z1 }, CR.iron);
+    gb.box('plainD', { xMin: -6.22, xMax: -6.18, yMin: FY, yMax: FY + 0.95, zMin: (z0 + z1) / 2 - 0.02, zMax: (z0 + z1) / 2 + 0.02 }, CR.iron);
+    gb.box('plainD', { xMin: -6.22, xMax: -6.18, yMin: FY + 0.88, yMax: FY + 0.95, zMin: z0, zMax: z1 }, CR.iron);
+  }
+  gb.finish();
+
+  // Llum puntual càlida única; es mou al racó d'espelmes més proper al jugador (main.js).
+  const L = D.light;
+  const light = new THREE.PointLight(L.color, 0, L.distance, L.decay);
+  markDynamic(light); light.name = 'CryptLight'; light.position.set(D.lights[2].x, D.lights[2].y, D.lights[2].z);
+  cryptRoot.add(light);
+
+  scene.add(cryptRoot);
+  cryptRoot.updateMatrixWorld(true);
+  let meshes = 0; let triangles = 0; let interiorTriangles = 0; let boxTriangles = 0;
+  cryptRoot.traverse((o) => {
+    o.matrixAutoUpdate = !!o.userData.dynamic;
+    if (o.isMesh) {
+      meshes += 1; const g = o.geometry; const t = g.index ? g.index.count / 3 : g.getAttribute('position').count / 3; triangles += t;
+      let inInterior = false; for (let p = o.parent; p; p = p.parent) if (p === interior) { inInterior = true; break; }
+      if (inInterior) interiorTriangles += t; else boxTriangles += t;
+    }
+  });
+
+  const handles = {
+    // Gir acumulat (radians) de cada disc, a més de la posició inicial.
+    setDiscAngle(i, a) { discs[i].rotation.z = (startIdx[i] * Math.PI) / 2 + a; },
+    // 0 → 1: els discs s'enfonsen a l'estela i s'encén l'anell de runa.
+    setSeal(p) { discs.forEach((d, i) => { d.position.z = P.discZ - 0.03 * p; rings[i].visible = p > 0.02; }); },
+    setSelectedDisc(i) { marker.visible = i >= 0; if (i >= 0) marker.position.x = P.discX[i]; },
+    // 0 → 1: el pany de ferro es corre i la runa del sarcòfag s'il·lumina.
+    setSarcUnlock(p) { latch.position.z = scz + 0.5 * p; rune.visible = p > 0.02; rune.scale.y = Math.max(0.05, p); },
+    setLid(p) { lid.position.z = scz - D.sarcophagus.lidSlide * p; lid.rotation.y = 0.12 * p; },
+    setKeyVisible(v) { keyC.visible = v; keyGlint.visible = v; },
+  };
+  function dispose() {
+    cryptRoot.removeFromParent();
+    cryptRoot.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  }
+  return { group: cryptRoot, box, interior, light, lights: D.lights, handles, flames, dispose, stats: { meshes, triangles: Math.round(triangles), interiorTriangles: Math.round(interiorTriangles), boxTriangles: Math.round(boxTriangles), pointLights: 1 } };
+}
+
+// Terra del món amb forats (p. ex. l'escala de la cripta). Mateixa mida i orientació que PlaneGeometry(size, size) girat −π/2 en X.
+export function createGroundGeometry(size, holes = []) {
+  const h = size / 2;
+  const s = new THREE.Shape(); s.moveTo(-h, -h); s.lineTo(h, -h); s.lineTo(h, h); s.lineTo(-h, h); s.lineTo(-h, -h);
+  for (const r of holes) { // el pla es gira −π/2 en X: y del Shape = −z del món
+    const p = new THREE.Path(); p.moveTo(r.xMin, -r.zMax); p.lineTo(r.xMax, -r.zMax); p.lineTo(r.xMax, -r.zMin); p.lineTo(r.xMin, -r.zMin); p.lineTo(r.xMin, -r.zMax);
+    s.holes.push(p);
+  }
+  return new THREE.ShapeGeometry(s);
+}
+
+
+// ---------------------------------------------------------------------
 // FUNCIÓ PÚBLICA
 // ---------------------------------------------------------------------
 export function buildVillage(scene, options = {}) {
@@ -4369,6 +4755,7 @@ export function buildVillage(scene, options = {}) {
   buildGate(mats, root);
   buildForest(mats, root);
   if (opts.cemetery) buildCemetery(mats, root);
+  if (opts.cemetery) buildClueBox(mats, root); // Fase D.3: caixa-pista a la casa C (pis superior)
   const furniture = buildFurniture(mats, root, opts);
   if (opts.cobwebs) buildCobwebs(mats, root);
   const houseLights = opts.houseLights ? buildInteriorLights(root) : [];
@@ -4379,6 +4766,7 @@ export function buildVillage(scene, options = {}) {
   if (opts.decor) buildDecor(mats, root);
 
   scene.add(root);
+  const crypt = opts.cemetery && opts.crypt !== false ? buildCrypt(mats, scene) : null; // Fase D.3: FORA de `root` (no compta a stats.triangles)
 
   // Tot és estàtic: calculem les matrius una vegada i deixem d'actualitzar-les.
   root.updateMatrixWorld(true);
@@ -4399,9 +4787,11 @@ export function buildVillage(scene, options = {}) {
     doors: DOORS.length, lanterns: LIGHTS.length, meshes, triangles: Math.round(triangles),
     pointLights: lanternLights.length,
     cemetery: { meshes: cemMeshes, triangles: Math.round(cemTriangles) }, // Fase D.2 (inclosos al total)
+    crypt: crypt ? crypt.stats : null,                                      // Fase D.3 (NO inclosos al total: grup propi)
   };
 
   function dispose() {
+    if (crypt) crypt.dispose();
     root.removeFromParent();
     root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     Object.values(mats).forEach((m) => m.dispose());
@@ -4416,5 +4806,5 @@ export function buildVillage(scene, options = {}) {
     setContainerProgress: furniture.handles.setContainer,
     setKeyVisible: furniture.handles.setKeyVisible,
   };
-  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, dispose };
+  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, crypt, dispose };
 }

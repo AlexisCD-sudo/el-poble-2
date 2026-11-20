@@ -12,9 +12,13 @@
 // =====================================================================
 
 import { createInventory, pickTarget, DOOR_INTERACTION } from './interactions.js';
+import { createCryptGame } from './crypt.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smooth = (t) => t * t * (3 - 2 * t);
+
+// Descripció de les claus de la casa per material (també la fa servir el menú de pausa, Fase D.3.1).
+export const KEY_DESCRIPTIONS = { bronze: 'clau de bronze envellit amb una campana gravada', iron: 'clau de ferro envellit amb una lluna gravada' };
 
 export function createContainer(def) {
   const c = { id: def.id, reveal: def.reveal, t: 0, opened: false, duration: 0.7 };
@@ -25,6 +29,10 @@ export function createContainer(def) {
     // 0 = tancat, 1 = obert del tot (amb l'animació suavitzada)
     progress() { return smooth(c.t); },
     update(dt) { if (c.opened && c.t < 1) c.t = clamp01(c.t + dt / c.duration); },
+    // Desar / carregar (Fase D.3.1)
+    isSettled() { return !c.opened || c.t >= 1; },
+    snapshot() { return { opened: c.opened }; },
+    restore(snap) { c.opened = !!snap.opened; c.t = c.opened ? 1 : 0; },
   };
 }
 
@@ -62,6 +70,16 @@ export function createSecretDoor(def) {
       }
       return { action: 'examine', message: `Porta segellada. Cal inserir dues claus: una ranura té una campana gravada, l'altra una lluna. «${def.inscription}»` };
     },
+    // Desar / carregar (Fase D.3.1): només 'locked' i 'open' són estats quiets; 'unlocked' i 'opening' són animacions en curs.
+    isSettled() { return s.state === 'locked' || s.state === 'open'; },
+    snapshot() {
+      const inserted = {}; for (const q of slots) inserted[q.key] = q.inserted;
+      return { state: s.state === 'locked' ? 'locked' : 'open', inserted }; // un estat transitori es normalitza al seu destí (obrint-se → oberta)
+    },
+    restore(snap) {
+      for (const q of slots) q.inserted = !!(snap.inserted && snap.inserted[q.key]);
+      s.state = snap.state === 'open' ? 'open' : 'locked'; s.timer = 0; s.t = s.state === 'open' ? 1 : 0;
+    },
     update(dt) {
       if (s.state === 'unlocked') {
         s.timer -= dt;
@@ -79,10 +97,12 @@ export function createSecretDoor(def) {
 // GAMEPLAY: tot el primer puzle junt (inventari, contenidors, claus, porta secreta, porta D1)
 // ---------------------------------------------------------------------
 // opts: { KEYS, SECRET_DOOR, churchDoor (de doors.js), houseDoors (de houseDoors.js, Fase C: D2, D3, D4; opcional),
-//         occluders (col·lisions massisses per a la línia de visió de les portes de casa; opcional), playerRadius (0,35) }
+//         occluders (col·lisions massisses per a la línia de visió de les portes de casa; opcional), playerRadius (0,35),
+//         crypt (Fase D.3, opcional): { def: CRYPT, occluders: parets de la cripta } → afegeix la caixa-pista, l'altar dels discs, el sarcòfag i KEY-C }
 // `view` (opcional a update/pressE) = { level, feetY }: pis i alçada dels peus del jugador (Fase C.1).
 export function createGameplay(opts) {
-  const { KEYS, SECRET_DOOR, churchDoor, houseDoors = [], occluders = [], playerRadius = 0.35 } = opts;
+  const { KEYS, SECRET_DOOR, churchDoor, houseDoors = [], playerRadius = 0.35 } = opts;
+  const occluders = [...(opts.occluders || []), ...(opts.crypt ? opts.crypt.occluders || [] : [])];
   const coneCos = Math.cos((DOOR_INTERACTION.coneDeg / 2) * Math.PI / 180);
   let view = { level: 0, feetY: 0, occluders };
   const setView = (v) => { if (v) view = { level: v.level, feetY: v.feetY, occluders }; };
@@ -95,7 +115,7 @@ export function createGameplay(opts) {
   const say = (text, ttl = 5) => { msg.text = text; msg.ttl = ttl; };
 
   const keyDef = (id) => KEYS.find((k) => k.id === id);
-  const keyDescription = { bronze: 'clau de bronze envellit amb una campana gravada', iron: 'clau de ferro envellit amb una lluna gravada' };
+  const keyDescription = KEY_DESCRIPTIONS;
   const containerOf = {};
   for (const k of KEYS) containerOf[k.container] = k;
 
@@ -165,13 +185,68 @@ export function createGameplay(opts) {
     },
   });
 
+  // 5. Cripta (Fase D.3): només si es passa `opts.crypt`. No toca cap objectiu anterior (KEY-A/KEY-B, portes, SD).
+  const crypt = opts.crypt ? createCryptGame(opts.crypt.def, { inventory, say }) : null;
+  if (crypt) {
+    targets.push(...crypt.targets);
+    // Un cop SD és oberta, el pas existeix: el text d'abans («encara no és hora d'entrar-hi») ja no és cert.
+    const sd = targets.find((t) => t.id === SECRET_DOOR.id);
+    const sdUse = sd.use; const sdPrompt = sd.prompt;
+    sd.prompt = () => (secretDoor.state === 'open' ? '' : sdPrompt());
+    sd.use = () => {
+      if (secretDoor.state !== 'open') return sdUse();
+      say('La porta és oberta. Al darrere, una escala estreta s\'enfonsa a la foscor.', 5);
+      return { action: 'dark' };
+    };
+  }
+
+  // Definició d'un objecte de l'inventari a partir del seu id (per recuperar-lo en carregar una partida; mai se'n dupliquen).
+  const itemDef = (id) => {
+    const k = keyDef(id);
+    if (k) return { id: k.id, name: k.name, description: keyDescription[k.material], symbol: k.symbol };
+    if (opts.crypt && id === opts.crypt.def.keyC.id) { const K = opts.crypt.def.keyC; return { id: K.id, name: K.name, description: K.description, symbol: K.symbol }; }
+    return null;
+  };
+  const allKeyIds = () => [...KEYS.map((k) => k.id), ...(opts.crypt ? [opts.crypt.def.keyC.id] : [])];
+
   let current = null;
   const api = {
-    inventory, secretDoor, containers, targets, houseDoors: doorsById,
+    inventory, secretDoor, containers, targets, houseDoors: doorsById, crypt, churchDoor,
+    knownItemIds: allKeyIds,
+    // --- Desar / carregar (Fase D.3.1) ---
+    // Tot l'estat de la partida que viu aquí. Un estat transitori es normalitza al seu destí; `isSettled()` diu si NO n'hi ha cap en curs.
+    isSettled() {
+      return !churchDoor.isAnimating() && secretDoor.isSettled() && Object.values(containers).every((c) => c.isSettled())
+        && houseDoors.every((hd) => hd.isSettled()) && (!crypt || crypt.isSettled());
+    },
+    snapshot() {
+      const cont = {}; for (const [id, c] of Object.entries(containers)) cont[id] = c.snapshot();
+      const hds = {}; for (const hd of houseDoors) hds[hd.id] = hd.snapshot();
+      return {
+        inventory: inventory.list().map((i) => i.id), taken: [...taken],
+        churchDoor: { angles: churchDoor.angles().slice() },
+        houseDoors: hds, containers: cont, secretDoor: secretDoor.snapshot(),
+        crypt: crypt ? crypt.snapshot() : null,
+      };
+    },
+    // Aplica un estat JA VALIDAT (saveGame.validateSave). No emet esdeveniments ni sons i buida missatges i objectiu.
+    restore(snap) {
+      for (const it of inventory.list()) inventory.remove(it.id);
+      for (const id of snap.inventory) { const d = itemDef(id); if (d) inventory.add(d); }
+      taken.clear(); for (const id of snap.taken) taken.add(id);
+      churchDoor.setAngles(snap.churchDoor.angles[0], snap.churchDoor.angles[1]);
+      for (const hd of houseDoors) if (snap.houseDoors[hd.id]) hd.restore(snap.houseDoors[hd.id]);
+      for (const [id, c] of Object.entries(containers)) c.restore(snap.containers[id] || { opened: false });
+      secretDoor.restore(snap.secretDoor);
+      if (crypt && snap.crypt) crypt.restore(snap.crypt);
+      msg.text = ''; msg.ttl = 0; current = null;
+    },
     get message() { return msg.ttl > 0 ? msg.text : ''; },
     // L'objecte que activaria E ara mateix (o null) i el seu text d'indicació.
     get target() { return current; },
     get prompt() { return current ? current.prompt() : ''; },
+    // Indicació discreta no actuable (Fase D.3): només quan no hi ha cap objectiu.
+    hint(px, pz) { return !current && crypt ? crypt.hint(px, pz) : ''; },
     hasKeyTaken(id) { return taken.has(id); },
     // A cridar cada fotograma. (dirX, dirZ) = mirada horitzontal.
     update(dt, px, pz, dirX, dirZ, v) {
@@ -179,6 +254,7 @@ export function createGameplay(opts) {
       secretDoor.update(dt);
       for (const c of Object.values(containers)) c.update(dt);
       for (const hd of houseDoors) hd.update(dt);
+      if (crypt) crypt.update(dt, px, pz, dirX, dirZ);
       if (msg.ttl > 0) msg.ttl -= dt;
       current = pickTarget(targets, px, pz, dirX, dirZ, view);
     },
@@ -188,7 +264,8 @@ export function createGameplay(opts) {
       current = pickTarget(targets, px, pz, dirX, dirZ, view);
       if (!current) return null;
       const t = current;
-      t.use(px, pz);
+      if (crypt) crypt.update(0, px, pz, dirX, dirZ); // la mirada actual (per triar disc)
+      t.use(px, pz, dirX, dirZ);
       current = pickTarget(targets, px, pz, dirX, dirZ, view);
       return t.id;
     },
