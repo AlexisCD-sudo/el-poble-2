@@ -349,9 +349,9 @@ test('Compatibilitat: SD oberta amb la cripta mostra el missatge de la baixada; 
 // =====================================================================
 console.log('\n8. Llum i atmosfera soterrània (matemàtiques)');
 // =====================================================================
-test('undergroundView: a fora tot igual que abans (hemi 1,5, lluna 1,2, boira base); a sota llum ambient molt baixa (D.3.1: ≤ 0,45), sense lluna i poble amagat', () => {
+test('undergroundView: a fora tot igual que abans (hemi 1,5, lluna 1,2, boira base); a sota llum ambient baixa però més clara (D.4: 0,5–0,9), sense lluna i poble amagat', () => {
   const a = undergroundView(0, 0, -15, CRYPT); expect(near(a.hemi, 1.5) && near(a.moon, 1.2) && a.fogT === 0 && a.villageVisible && !a.lightOn, 'superfície');
-  const b = undergroundView(-3.2, 0, -30, CRYPT); expect(b.hemi <= 0.45 && b.moon === 0 && b.fogT === 1 && !b.villageVisible && b.interiorVisible && b.lightOn, 'cripta');
+  const b = undergroundView(-3.2, 0, -30, CRYPT); expect(b.hemi <= 0.9 && b.hemi >= 0.5 && b.moon === 0 && b.fogT === 1 && !b.villageVisible && b.interiorVisible && b.lightOn, 'cripta');
   let prev = 2; for (let y = 0; y >= -3.2; y -= 0.1) { const v = undergroundView(y, 0, -24, CRYPT); expect(v.hemi <= prev + 1e-9, 'monòton'); prev = v.hemi; }
   const c = undergroundView(0, 10, 10, CRYPT); expect(!c.interiorVisible && !c.lightOn, 'l\'interior no es dibuixa des de fora');
   expect(undergroundView(0, 0, -15, CRYPT).interiorVisible, 'a la nau sí (es veu el pas del SD)');
@@ -365,7 +365,7 @@ console.log('\n9. Geometria generada i rendiment');
 // =====================================================================
 const scene = new THREE.Scene(); const village = buildVillage(scene); const crypt = village.crypt;
 const baseScene = new THREE.Scene(); const base = buildVillage(baseScene, { cemetery: false });
-test('Línia base intacta: amb cemetery:false el poble té exactament 41 060 triangles / 150 malles (base D.3.1) i cap cripta', () => { expect(base.stats.triangles === 41060 && base.stats.meshes === 150 && base.crypt === null && base.stats.crypt === null, `${base.stats.triangles}/${base.stats.meshes}`); });
+test('Línia base intacta: amb cemetery:false el poble té exactament 41 092 triangles / 150 malles (base D.4) i cap cripta', () => { expect(base.stats.triangles === 41092 && base.stats.meshes === 150 && base.crypt === null && base.stats.crypt === null, `${base.stats.triangles}/${base.stats.meshes}`); });
 test('La cripta és un grup propi FORA del poble (no compta a stats.triangles) amb dos subgrups: CryptBox (pou) i CryptInterior', () => {
   expect(crypt && crypt.group.name === 'Crypt' && crypt.box.name === 'CryptBox' && crypt.interior.name === 'CryptInterior', 'grups'); let p = crypt.group; while (p.parent) { expect(p.parent !== village.root, 'dins del poble'); p = p.parent; }
   expect(village.stats.crypt.triangles === crypt.stats.triangles && crypt.stats.boxTriangles + crypt.stats.interiorTriangles === crypt.stats.triangles, 'comptadors');

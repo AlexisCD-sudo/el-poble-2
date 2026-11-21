@@ -11,11 +11,12 @@ import { SYMBOL_BITMAPS } from '../world/cryptSymbols.js';
 import { inventorySummary, NO_DOCUMENTS_TEXT, NO_SAVE_TEXT } from './menuModel.js';
 import { mapSize, MAP_SCALE } from './mapView.js';
 import { formatSavedAt } from '../game/saveGame.js';
+import { FONT_TITLE, FONT_TEXT } from './theme.js';   // Fase D.4: tipografia pròpia (títols Gloock, textos Crimson Pro)
 
 export const TABS = [['inventari', 'INVENTARI'], ['documents', 'DOCUMENTS'], ['mapa', 'MAPA'], ['guardar', 'GUARDAR'], ['carregar', 'CARREGAR']];
 
 const DEFAULT_HINT = 'Esc — tornar al joc';
-const FONT = 'Georgia, "Palatino Linotype", "Book Antiqua", serif';
+const FONT = FONT_TEXT; const TITLE = FONT_TITLE;
 const INK = '#2b2013';
 const MATERIAL_COLOR = { bronze: '#a47b3f', iron: '#6a6e7a', blackIron: '#34343c' };
 
@@ -23,44 +24,44 @@ const CSS = `
 .fv-pause { position: fixed; inset: 0; z-index: 1000; display: none; align-items: center; justify-content: center; background: rgba(5,4,3,0.86); font-family: ${FONT}; color: ${INK}; user-select: none; }
 .fv-frame { box-sizing: border-box; width: min(94vw, 940px); height: min(90vh, 640px); display: flex; border: 7px solid #34312d; outline: 2px solid #15130f; box-shadow: 0 0 0 3px #4a453d, 0 0 60px #000; background: #2a1f16; }
 .fv-nav { width: 210px; flex: none; display: flex; flex-direction: column; padding: 16px 12px; gap: 8px; background: linear-gradient(90deg, #2e2218, #3a2b1d 60%, #2e2218); border-right: 4px solid #17110b; }
-.fv-title { text-align: center; color: #cdbd96; font-size: 22px; letter-spacing: 3px; margin: 2px 0 10px; border-bottom: 1px solid #6b5636; padding-bottom: 10px; }
-.fv-btn { font-family: ${FONT}; font-size: 15px; letter-spacing: 2px; padding: 11px 8px; color: #d6c8a2; background: linear-gradient(#4a3826, #3a2b1d); border: 2px solid #1c140d; border-radius: 2px; box-shadow: inset 0 1px 0 #6b5636; cursor: pointer; text-align: center; }
+.fv-title { font-family: ${TITLE}; text-align: center; color: #cdbd96; font-size: 28px; letter-spacing: 5px; font-weight: normal; margin: 2px 0 10px; border-bottom: 1px solid #6b5636; padding-bottom: 10px; }
+.fv-btn { font-family: ${TITLE}; font-size: 14px; letter-spacing: 2.5px; padding: 11px 8px; color: #d6c8a2; background: linear-gradient(#4a3826, #3a2b1d); border: 2px solid #1c140d; border-radius: 2px; box-shadow: inset 0 1px 0 #6b5636; cursor: pointer; text-align: center; }
 .fv-btn:hover, .fv-btn:focus-visible { background: linear-gradient(#5a4530, #46341f); color: #efe2bd; outline: none; }
 .fv-btn.fv-active { background: linear-gradient(#cdbd96, #b9a77c); color: ${INK}; border-color: #5a4630; box-shadow: inset 0 0 0 1px #e3d6b2; }
 .fv-spacer { flex: 1; }
 .fv-resume { background: linear-gradient(#3b3a36, #2c2b28); border-color: #12110f; }
-.fv-hint { text-align: center; color: #8d7d5d; font-size: 12px; margin-top: 4px; }
+.fv-hint { text-align: center; color: #9a8a6a; font-size: 14px; font-style: italic; margin-top: 4px; }
 .fv-content { flex: 1; min-width: 0; overflow: auto; padding: 22px 28px; background: radial-gradient(ellipse at center, #d3c49e 0%, #c3b189 70%, #a9966b 100%); }
-.fv-h { margin: 0 0 4px; font-size: 22px; letter-spacing: 3px; }
-.fv-sub { margin: 0 0 16px; font-style: italic; font-size: 14px; opacity: 0.75; border-bottom: 1px solid rgba(43,32,19,0.35); padding-bottom: 8px; }
+.fv-h { margin: 0 0 4px; font-family: ${TITLE}; font-weight: normal; font-size: 30px; letter-spacing: 4px; }
+.fv-sub { margin: 0 0 16px; font-style: italic; font-size: 17px; opacity: 0.75; border-bottom: 1px solid rgba(43,32,19,0.35); padding-bottom: 8px; }
 .fv-key { display: flex; gap: 16px; align-items: center; padding: 12px 14px; margin-bottom: 12px; border: 2px solid #5a4630; background: rgba(255,248,225,0.22); }
 .fv-key.fv-locked { border-style: dashed; opacity: 0.7; background: rgba(43,32,19,0.10); }
 .fv-key canvas { image-rendering: pixelated; flex: none; background: rgba(43,32,19,0.12); border: 1px solid rgba(43,32,19,0.4); }
-.fv-key-name { font-size: 18px; font-weight: bold; }
-.fv-key-desc { font-size: 15px; margin-top: 4px; line-height: 1.4; }
-.fv-tag { margin-left: auto; font-size: 12px; letter-spacing: 1px; padding: 3px 8px; border: 1px solid #5a4630; white-space: nowrap; }
+.fv-key-name { font-family: ${TITLE}; font-size: 20px; font-weight: normal; letter-spacing: 1px; }
+.fv-key-desc { font-size: 18px; margin-top: 4px; line-height: 1.4; }
+.fv-tag { margin-left: auto; font-size: 14px; font-weight: bold; letter-spacing: 1.5px; padding: 3px 8px; border: 1px solid #5a4630; white-space: nowrap; }
 .fv-tag.fv-got { background: #4b5a35; color: #e9e2c4; border-color: #2c3720; }
 .fv-docs { display: flex; gap: 18px; min-height: 360px; }
 .fv-doclist { width: 200px; flex: none; display: flex; flex-direction: column; gap: 8px; }
-.fv-doc { text-align: left; font-family: ${FONT}; font-size: 15px; color: ${INK}; background: rgba(255,248,225,0.25); border: 2px solid #5a4630; padding: 9px 10px; cursor: pointer; }
+.fv-doc { text-align: left; font-family: ${FONT}; font-size: 18px; color: ${INK}; background: rgba(255,248,225,0.25); border: 2px solid #5a4630; padding: 9px 10px; cursor: pointer; }
 .fv-doc.fv-active, .fv-doc:hover { background: rgba(255,248,225,0.6); }
 .fv-docview { flex: 1; min-width: 0; padding: 18px 22px; border: 2px solid #5a4630; background: rgba(255,248,225,0.3); }
-.fv-doc-title { font-size: 19px; font-weight: bold; margin-bottom: 4px; }
-.fv-doc-src { font-size: 13px; font-style: italic; opacity: 0.7; margin-bottom: 14px; }
-.fv-doc-text { font-size: 19px; line-height: 1.55; font-style: italic; }
+.fv-doc-title { font-family: ${TITLE}; font-size: 22px; font-weight: normal; margin-bottom: 4px; }
+.fv-doc-src { font-size: 15px; font-style: italic; opacity: 0.7; margin-bottom: 14px; }
+.fv-doc-text { font-size: 22px; line-height: 1.5; font-style: italic; }
 .fv-doc-symbols { display: flex; gap: 20px; align-items: center; margin-top: 18px; }
 .fv-doc-symbols canvas { image-rendering: pixelated; }
 .fv-map { display: flex; gap: 18px; align-items: flex-start; }
 .fv-map canvas { flex: none; border: 3px solid #4a3826; box-shadow: 0 0 0 1px #17110b; max-width: 100%; max-height: calc(min(90vh, 640px) - 170px); width: auto; height: auto; }
-.fv-legend { font-size: 14px; line-height: 1.5; }
+.fv-legend { font-size: 17px; line-height: 1.4; }
 .fv-legend div { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .fv-swatch { width: 22px; height: 14px; flex: none; border: 1px solid ${INK}; }
-.fv-act { font-size: 17px; padding: 12px 22px; margin: 10px 0; color: #efe2bd; background: linear-gradient(#5a3b2a, #43291c); border: 2px solid #2a1810; cursor: pointer; font-family: ${FONT}; letter-spacing: 2px; }
+.fv-act { font-size: 16px; padding: 12px 22px; margin: 10px 0; color: #efe2bd; background: linear-gradient(#5a3b2a, #43291c); border: 2px solid #2a1810; cursor: pointer; font-family: ${TITLE}; letter-spacing: 2.5px; }
 .fv-act:hover, .fv-act:focus-visible { background: linear-gradient(#6a4632, #52331f); outline: none; }
-.fv-note { margin-top: 14px; padding: 10px 14px; font-size: 16px; line-height: 1.4; border: 2px solid #5a4630; background: rgba(255,248,225,0.35); min-height: 22px; }
+.fv-note { margin-top: 14px; padding: 10px 14px; font-size: 19px; line-height: 1.4; border: 2px solid #5a4630; background: rgba(255,248,225,0.35); min-height: 22px; }
 .fv-note.fv-ok { border-color: #3d5028; color: #22331a; }
 .fv-note.fv-err { border-color: #6b2a22; color: #5a1f19; }
-.fv-p { font-size: 16px; line-height: 1.5; margin: 6px 0; }
+.fv-p { font-size: 18px; line-height: 1.45; margin: 6px 0; }
 @media (max-width: 720px) { .fv-frame { flex-direction: column; height: 94vh; } .fv-nav { width: auto; flex-direction: row; flex-wrap: wrap; padding: 8px; } .fv-title { display: none; } .fv-spacer { display: none; } .fv-map { flex-direction: column; } }
 `;
 

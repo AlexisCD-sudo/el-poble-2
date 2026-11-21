@@ -3,6 +3,7 @@
 // =====================================================================
 // Capa DOM sense interacció (pointer-events: none): no afecta el pointer lock. Es mostra/amaga amb setVisible().
 import { SYMBOL_BITMAPS, SYMBOL_NAMES } from '../world/cryptSymbols.js';
+import { FONT_TEXT } from './theme.js'; // Fase D.4
 
 export function createNoteView(def, parent = document.body) {
   const box = document.createElement('div');
@@ -10,7 +11,7 @@ export function createNoteView(def, parent = document.body) {
     position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); display: none;
     padding: 22px 30px 18px; max-width: 460px; text-align: center; pointer-events: none; user-select: none;
     background: #cdbd96; color: #2b2013; border: 3px solid #5a4630; border-radius: 3px;
-    box-shadow: 0 0 40px rgba(0,0,0,0.7); font-family: Georgia, serif; font-size: 20px; line-height: 1.45; font-style: italic;
+    box-shadow: 0 0 40px rgba(0,0,0,0.7); font-family: ${FONT_TEXT}; font-size: 23px; line-height: 1.45; font-style: italic;
   `;
   const text = document.createElement('div');
   text.textContent = `«${def.clue.text.replace(/^«|»$/g, '')}»`;

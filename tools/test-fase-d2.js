@@ -221,8 +221,8 @@ console.log('\n6. Geometria generada (buildVillage) i rendiment');
 const scene = new THREE.Scene(); const v = buildVillage(scene); const root = scene.children.find((c) => c.name === 'Village') || scene;
 const find = (name) => { let r = null; scene.traverse((o) => { if (o.name === name && !r) r = o; }); return r; };
 const sceneWith = new THREE.Scene(); const vNo = buildVillage(sceneWith, { cemetery: false });
-test('Triangles: el poble sol té 41.060 (base D.3.1: sense 3 cadires, amb llit i cartell nous); amb el cementiri < 60.000 i el cementiri ≤ 20.000', () => {
-  expect(vNo.stats.triangles === 41060 && vNo.stats.meshes === 150, `poble sol: ${vNo.stats.triangles} triangles, ${vNo.stats.meshes} malles`);
+test('Triangles: el poble sol té 41.092 (base D.4: base D.3.1 + forat gòtic de la nau, sense pal de cartell ni plafó de foscor); amb el cementiri < 60.000 i el cementiri ≤ 20.000', () => {
+  expect(vNo.stats.triangles === 41092 && vNo.stats.meshes === 150, `poble sol: ${vNo.stats.triangles} triangles, ${vNo.stats.meshes} malles`);
   expect(v.stats.triangles < 60000, `${v.stats.triangles} triangles`);
   expect(v.stats.cemetery.triangles <= 20000 && v.stats.cemetery.meshes <= 40, `cementiri: ${JSON.stringify(v.stats.cemetery)}`);
   console.log(`      (total ${v.stats.triangles} triangles, ${v.stats.meshes} malles; cementiri ${v.stats.cemetery.triangles} triangles, ${v.stats.cemetery.meshes} malles)`);
@@ -244,7 +244,7 @@ test('Estructura: grup Cemetery amb els 4 murs, la reixa (pivot de la fulla a la
   const leaf = find('CemeteryGateLeaf'); expect(leaf, 'falta la fulla');
   expect(Math.abs(leaf.position.x - 15.2) < 1e-9 && Math.abs(leaf.position.z + 7.05) < 1e-9 && leaf.rotation.y === 0, `pivot de la fulla ${leaf.position.toArray()} rot ${leaf.rotation.y}`);
   expect(find('CemeteryGateLock'), 'falta el cadenat'); expect(find('Cemetery-paths'), 'falta el mapa de camins');
-  expect(!leaf.userData.dynamic, 'la fulla no es mou a la D.2');
+  expect(leaf.userData.dynamic, 'la fulla és mòbil a partir de la D.4 (matriu viva)');   // D.4: abans era estàtica
 });
 test('Camins: una sola malla plana, a y = 0,03, tots els vèrtexs dins del clos (mai sota els murs ni al carreró), normals cap amunt', () => {
   const paths = find('Cemetery-paths'); const pos = paths.geometry.getAttribute('position'); const nor = paths.geometry.getAttribute('normal');
@@ -269,12 +269,12 @@ test('Terra del clos (D.2.1): una malla plana a y = 0,02 que cobreix el 100 % de
   expect(!soil.material.transparent && soil.material.isMeshLambertMaterial, 'el terra ha de ser Lambert opac');
   expect(tris.length <= 900, `${tris.length} triangles de terra`);
 });
-test('Cartell: un únic quad (2 triangles) mirant al sud (cap a la plaça), a y 1,75→2,2, enganxat a la paret M-N1 (z = −9, D.3.1)', () => {
+test('Cartell: un únic quad (2 triangles) mirant al sud (cap a la plaça), a y 1,75→2,2, enganxat a la paret M-N1 (z = −9) amb el centre a x = 5,5 (D.4: sense pal)', () => {
   const props = find('CemeteryProps'); const quads = props.children.filter((m) => m.name === 'CemeteryProps-sign');
   expect(quads.length === 1 && quads[0].geometry.getAttribute('position').count === 6, `${quads.length} malles de cartell`);
   const g = quads[0].geometry; const p = g.getAttribute('position'); const n = g.getAttribute('normal'); const bb = new THREE.Box3().setFromBufferAttribute(p);
   for (let i = 0; i < 6; i++) expect(n.getZ(i) > 0.99, `normal z ${n.getZ(i)}`);
-  expect(bb.min.y >= 1.72 && bb.max.y <= 2.23 && bb.min.x > 5.7 && bb.max.x < 7.3 && bb.min.z > -9.0 && bb.max.z < -8.9, `capsa ${bb.min.toArray()} ${bb.max.toArray()}`);
+  expect(bb.min.y >= 1.72 && bb.max.y <= 2.23 && bb.min.x > 4.8 && bb.max.x < 6.2 && bb.min.z > -9.0 && bb.max.z < -8.9, `capsa ${bb.min.toArray()} ${bb.max.toArray()}`);
 });
 test('Tot el cementiri queda dins de la seva zona (x 3,4→29, z −34,8→−6,3); res no sobresurt cap al poble (llevat del cartell i de les peces de la reixa)', () => {
   const cem = find('Cemetery'); const box = new THREE.Box3();

@@ -457,9 +457,9 @@ test('Calaix, tapa de l\'arca i claus: el calaix surt 0,35 m, la tapa gira ≤ 9
   }
   village.puzzle.setContainerProgress('A-DRS', 0); village.puzzle.setContainerProgress('B-CHS', 0);
 });
-test('Els mobles dinàmics i les claus no afegeixen col·lisions ni elements fora del que es lliura (només els grups amb matriu viva: calaix, tapa, fulles de D1, fulles de D2–D4 i batents de la porta secreta)', () => {
+test('Els mobles dinàmics i les claus no afegeixen col·lisions ni elements fora del que es lliura (només els grups amb matriu viva: calaix, tapa, fulles de D1, fulles de D2–D4, batents de la porta secreta i, des de la D.4, la fulla i el cadenat de la reixa del cementiri)', () => {
   const dyn = []; village.root.traverse((o) => { if (o.userData.dynamic) dyn.push(o.name); });
-  expect(dyn.sort().join() === 'A-DRS-drawer,B-CHS-lid,D1-leaf-E,D1-leaf-W,D2-leaf,D3-leaf,D4-leaf,SD-leaf-E,SD-leaf-W', dyn.join());
+  expect(dyn.sort().join() === 'A-DRS-drawer,B-CHS-lid,CemeteryGateLeaf,CemeteryGateLock,D1-leaf-E,D1-leaf-W,D2-leaf,D3-leaf,D4-leaf,SD-leaf-E,SD-leaf-W', dyn.join());
 });
 test('Portes de casa (Fase C): D2, D3 i D4 tenen fulla mòbil pròpia; D4 ja no té esglaons (llindar a ras de terra)', () => {
   for (const id of ['D2', 'D3', 'D4']) expect(village.doors[id] && typeof village.doors[id].setAngle === 'function', `${id} sense fulla`);

@@ -8,6 +8,7 @@
 //   no accessible → trama de ratlles diagonals, contorn discontinu i una creu (X); l'etiqueta diu per què («reixa tancada»)
 // El jugador és una fletxa vermella fosca que apunta cap a on mira (nord amunt).
 // =====================================================================
+import { FONT_TEXT, FONT_TITLE } from './theme.js';   // Fase D.4: tipografia pròpia del joc
 
 export const MAP_SCALE = 7; // píxels per metre
 export const INK = '#2b2013';
@@ -70,10 +71,10 @@ function halo(ctx, text, x, y) { // text amb vora clara perquè es llegeixi sobr
 
 function label(ctx, bounds, z, scale) {
   const r = z.rects[0]; const [cx, cy] = toCanvas(bounds, (r.xMin + r.xMax) / 2, (r.zMin + r.zMax) / 2, scale);
-  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = 'italic 11px Georgia, serif';
+  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = `italic 13px ${FONT_TEXT}`;
   const text = z.accessible || !z.lockedNote ? z.name : `${z.name} (${z.lockedNote})`;
   halo(ctx, text, cx, cy + (z.kind === 'church' ? -2 : 4));
-  if (!z.accessible) { ctx.font = 'bold 13px Georgia, serif'; halo(ctx, '✕', cx, cy + 20); }
+  if (!z.accessible) { ctx.font = `bold 15px ${FONT_TEXT}`; halo(ctx, '✕', cx, cy + 20); }
 }
 
 function compass(ctx, w) {
@@ -81,7 +82,7 @@ function compass(ctx, w) {
   ctx.fillStyle = INK; ctx.strokeStyle = INK; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(cx, cy - 16); ctx.lineTo(cx + 4, cy); ctx.lineTo(cx, cy + 16); ctx.lineTo(cx - 4, cy); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.moveTo(cx - 12, cy); ctx.lineTo(cx, cy - 3); ctx.lineTo(cx + 12, cy); ctx.lineTo(cx, cy + 3); ctx.closePath(); ctx.stroke();
-  ctx.textAlign = 'center'; ctx.font = 'bold 12px Georgia, serif'; ctx.fillText('N', cx, cy - 20);
+  ctx.textAlign = 'center'; ctx.font = `bold 13px ${FONT_TEXT}`; ctx.fillText('N', cx, cy - 20);
 }
 
 export function drawPlayer(ctx, bounds, p, scale) {
@@ -92,14 +93,14 @@ export function drawPlayer(ctx, bounds, p, scale) {
   ctx.beginPath();
   ctx.moveTo(x + dx * 9, y + dz * 9); ctx.lineTo(x - dx * 6 + px * 5.5, y - dz * 6 + pz * 5.5); ctx.lineTo(x - dx * 3, y - dz * 3); ctx.lineTo(x - dx * 6 - px * 5.5, y - dz * 6 - pz * 5.5);
   ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = 'bold 11px Georgia, serif'; ctx.fillText('Tu', x, y - 13);
+  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = `bold 13px ${FONT_TEXT}`; ctx.fillText('Tu', x, y - 13);
 }
 
 // Dibuixa el mapa sencer. Retorna el nombre de zones dibuixades (per als tests).
 export function drawMap(ctx, model, opts = {}) {
   const scale = opts.scale || MAP_SCALE; const { w, h } = mapSize(model.bounds, scale);
   parchment(ctx, w, h);
-  ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.font = 'italic bold 15px Georgia, serif'; ctx.fillText('El Poble Oblidat', 20, 32);
+  ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.font = `22px ${FONT_TITLE}`; ctx.fillText('EL POBLE', 20, 34);
   compass(ctx, w);
   const order = ['road', 'plaza', 'forest', 'cemetery', 'house', 'church', 'crypt'];
   const zones = [...model.zones].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));

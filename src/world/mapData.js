@@ -47,7 +47,7 @@ export function buildMapData(layout) {
 // Regles d'accés dinàmiques (l'estat de la partida decideix què és accessible).
 export function zoneAccessible(zone, flags) {
   if (zone.id === 'cripta') return !!flags.sdOpen;
-  if (zone.id === 'cementiri') return !!flags.cemeteryOpen; // D.4 (obertura de la reixa): encara no existeix
+  if (zone.id === 'cementiri') return !!flags.cemeteryOpen;
   return zone.accessible;
 }
 

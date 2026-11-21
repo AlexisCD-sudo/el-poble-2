@@ -71,6 +71,10 @@ const solids = [];
 // Tampoc compten els mobles, l'atrezzo interior de l'església (pilastres, espelmes) ni la porta secreta (Fase B).
 const isFurnishing = (o) => isUnder(o, 'Furniture') || isUnder(o, 'ChurchDecor') || isUnder(o, 'SecretDoor');
 village.root.traverse((o) => { if (o.isMesh && !isUnder(o, 'Decor') && !isFurnishing(o) && !(o.parent && o.parent.userData.dynamic)) solids.push(o); });
+// Fase D.4: el mur nord de la nau té ara un forat real (gòtic) pel pas de la porta secreta, perquè des de la cripta no es vegi una paret grisa.
+// Amb la porta tancada el forat el tanca la porta (que aquí s'exclou, com abans) i la col·lisió el tracta com a paret: per això, en aquesta prova
+// de l'ESTRUCTURA, el forat es tapa amb un tac invisible que ocupa el gruix del mur (la porta tancada es prova a test-fase-d4.js, grup G).
+{ const plug = new THREE.Mesh(new THREE.BoxGeometry(1.8, 3.6, 0.4), new THREE.MeshBasicMaterial()); plug.position.set(0, 1.8, -20.6); village.root.add(plug); plug.updateMatrixWorld(true); solids.push(plug); }
 const probeMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }); // només per als raigs: veu les dues cares
 const originalMaterials = solids.map((m) => m.material);
 solids.forEach((m) => { m.material = probeMaterial; });

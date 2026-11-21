@@ -4,7 +4,8 @@
 // FORMAT (JSON a localStorage, clau SAVE_KEY, versió SAVE_VERSION):
 //   { game, version, savedAt, player:{x,z,yaw,pitch,level,feetY}, state:{ ...gameplay.snapshot() }, documents:[ids], map:{discovered,visited} }
 //   state = inventari (ids), claus agafades, angles de D1, portes de casa {open,side}, contenidors {opened}, porta secreta
-//   {state:'locked'|'open', inserted}, cripta {discs, discTurns, solved, sarc:'locked'|'unlocked'|'open', keyTaken, noteSeen}.
+//   {state:'locked'|'open', inserted}, cripta {discs, discTurns, solved, sarc:'locked'|'unlocked'|'open', keyTaken, noteSeen},
+//   cemeteryGate {open} (Fase D.4; les partides de la D.3.1 no el tenen i es carreguen amb la reixa tancada).
 //
 // SEGURETAT:
 //   · canSave(): només es desa amb TOT l'estat quiet (cap porta, mecanisme, calaix, disc ni sarcòfag en moviment) i amb el jugador en
@@ -51,7 +52,7 @@ export function canSave(ctx) {
 }
 
 // ---------------------------------------------------------------------
-// VALIDACIÓ. defs = { KEYS, CRYPT, SECRET_DOOR, houseDoorIds, churchLimits:{min,max} (rad), documentIds, noteDocumentId, zoneIds, levelSplit, levelSplitDown, mapLimit }
+// VALIDACIÓ. defs = { KEYS, CRYPT, SECRET_DOOR, houseDoorIds, churchLimits:{min,max} (rad), documentIds, noteDocumentId, zoneIds, levelSplit, levelSplitDown, mapLimit, CEM_AREA (opcional) }
 // Retorna { ok, errors[] } sense modificar res.
 // ---------------------------------------------------------------------
 export function validateSave(data, defs) {
@@ -120,6 +121,10 @@ export function validateSave(data, defs) {
     if (cr.keyTaken && cr.sarc !== 'open') bad('KEY-C agafada amb el sarcòfag tancat');
   }
 
+  // reixa del cementiri (Fase D.4): camp opcional (partides antigues = tancada)
+  const gateSnap = st.cemeteryGate;
+  if (gateSnap !== undefined && (!isObj(gateSnap) || typeof gateSnap.open !== 'boolean')) bad('reixa del cementiri invàlida');
+
   // coherència entre peces (només si l'estructura bàsica és correcta)
   if (errors.length === 0) {
     const inv = new Set(st.inventory); const taken = new Set(st.taken);
@@ -132,6 +137,9 @@ export function validateSave(data, defs) {
     const all = slotKeys.every((q) => sd.inserted[q]);
     if (sd.state === 'open' && !all) errors.push('porta secreta oberta sense les dues claus');
     if (sd.state === 'locked' && all) errors.push('porta secreta amb les dues claus inserides però tancada');
+    const gateOpen = !!(gateSnap && gateSnap.open);
+    if (gateOpen && !inv.has(defs.CRYPT.keyC.id)) errors.push('reixa del cementiri oberta sense KEY-C a l\'inventari');
+    if (!gateOpen && pl && defs.CEM_AREA && [defs.CEM_AREA.clos, defs.CEM_AREA.vestibule].some((r) => pl.x >= r.xMin && pl.x <= r.xMax && pl.z >= r.zMin && pl.z <= r.zMax)) errors.push('jugador dins el cementiri amb la reixa tancada');
     const crypticProgress = cr.solved || cr.keyTaken || cr.sarc !== 'locked' || cr.discTurns.some((t) => t > 0);
     if (crypticProgress && sd.state !== 'open') errors.push('progrés a la cripta amb la porta secreta tancada');
     if (pl && pl.level === -1 && sd.state !== 'open') errors.push('jugador a la cripta amb la porta secreta tancada');

@@ -159,11 +159,11 @@ test('A12. Cripta: 12 espelmes (5 de noves) repartides per antecambra, sala prin
   for (const c of cs) if (c.on === 'floor') expect(isPositionFree(c.x, c.z, 0.05, occ, 1e-4, -1), `${c.id} dins d'un obstacle`);
   for (let i = 0; i < cs.length; i++) for (let j = i + 1; j < cs.length; j++) expect(Math.hypot(cs[i].x - cs[j].x, cs[i].z - cs[j].z) > 0.8, `${cs[i].id}/${cs[j].id} massa juntes`);
 });
-test('A13. Cripta: una sola PointLight, sense ombres, discreta (intensitat ≤ 12, ambient ≤ 0,5) però prou visible (ambient ≥ 0,3); 7 punts de llum', () => {
+test('A13. Cripta: una sola PointLight, sense ombres, D.4: més clara (intensitat 15–30, ambient 0,5–0,9) però sense ombres ni llums extra; 7 punts de llum', () => {
   const crypt = village.crypt; const lights = []; crypt.group.traverse((o) => { if (o.isLight) lights.push(o); });
   const point = lights.filter((l) => l.isPointLight); expect(point.length === 1, `${point.length} PointLight`);
-  expect(!point[0].castShadow, 'ombres dinàmiques'); expect(CRYPT.light.intensity <= 12 && CRYPT.light.intensity >= 8 && CRYPT.light.distance <= 9, `intensitat ${CRYPT.light.intensity}`); // la llum real arrenca a 0 i s'encén segons la profunditat
-  expect(CRYPT.ambient.hemiDeep >= 0.3 && CRYPT.ambient.hemiDeep <= 0.5, `ambient ${CRYPT.ambient.hemiDeep}`);
+  expect(!point[0].castShadow, 'ombres dinàmiques'); expect(CRYPT.light.intensity <= 30 && CRYPT.light.intensity >= 15 && CRYPT.light.distance <= 14 && CRYPT.light.distance >= 11, `intensitat ${CRYPT.light.intensity}`); // la llum real arrenca a 0 i s'encén segons la profunditat
+  expect(CRYPT.ambient.hemiDeep >= 0.5 && CRYPT.ambient.hemiDeep <= 0.9, `ambient ${CRYPT.ambient.hemiDeep}`);
   expect(CRYPT.lights.length === 7, `${CRYPT.lights.length} punts de llum`);
   for (const l of CRYPT.lights) expect(l.y < -1 && l.z < -22, `${l.id} fora de la cripta`);
   const zones = [[-1, -28.5, 'antecambra'], [-1, -33, 'sala'], [-8.4, -33.5, 'guardià']];
@@ -496,7 +496,7 @@ test('I1. Els mòduls nous no depenen del DOM ni de Three.js (es poden provar de
   for (const f of ['game/pauseState.js', 'game/saveGame.js', 'player/documents.js', 'world/mapData.js', 'ui/menuModel.js']) { const s = read(`../src/${f}`); expect(!/\b(document|window)\.(getElementById|createElement|body|addEventListener|localStorage)/.test(s) && !/from 'three'/.test(s), `${f} depèn del DOM/Three`); }
 });
 test('I2. Estadístiques de l\'escena del poble sota el pressupost (< 60.000 triangles) i el llit no n\'afegeix més de 400', () => {
-  const sc = new THREE.Scene(); const v = buildVillage(sc, { cemetery: false }); expect(v.stats.triangles === 41060, `${v.stats.triangles}`); const full = v.stats.triangles; v.dispose();
+  const sc = new THREE.Scene(); const v = buildVillage(sc, { cemetery: false }); expect(v.stats.triangles === 41092, `${v.stats.triangles}`); const full = v.stats.triangles; v.dispose();
   const sc2 = new THREE.Scene(); const v2 = buildVillage(sc2); expect(v2.stats.triangles < 60000 && v2.stats.triangles > full, `${v2.stats.triangles}`);
 });
 

@@ -6,8 +6,11 @@ import { createSwingDoor } from './player/doors.js';
 import { createGameplay, KEY_DESCRIPTIONS } from './player/puzzle.js';
 import { createHouseDoor } from './player/houseDoors.js';
 import { createFloors, smoothHeight } from './player/floors.js';
-import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS, CEM_WALLS, CEM_PROPS, CRYPT, CRYPT_WALLS, CRYPT_PROPS, CRYPT_FLOORS } from './world/layout.js';
+import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS, CEM_WALLS, CEM_PROPS, CEM_AREA, CEM_GATE, CEM_GATE_MECH, D4_REMOVED_COLLIDERS, CRYPT, CRYPT_WALLS, CRYPT_PROPS, CRYPT_FLOORS } from './world/layout.js';
 import { createCryptAccess, undergroundView } from './player/crypt.js';
+import { installTheme, FONT_TEXT } from './ui/theme.js';
+import { createTitleScreen, GAME_TITLE } from './ui/titleScreen.js';
+import { createCemeteryGate } from './player/cemeteryGate.js'; // Fase D.4: reixa del cementiri (s'obre amb KEY-C)
 import { createNoteView } from './ui/noteView.js';
 import { createCryptSounds } from './audio/cryptSounds.js';
 // Fase D.3.1: menú de pausa, desar/carregar, documents i mapa (cada cosa al seu mòdul; aquí només es connecten)
@@ -392,11 +395,13 @@ const village = buildVillage(scene);
 // FURNITURE: bancs, altar i mobles (Fase B); STAIRS: escala de la casa C (Fase C); CEM_WALLS / CEM_PROPS: cementiri, inaccessible (Fase D.2)
 const colliders = buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS });
 // Fase D.2: el cementiri és visible però inaccessible. Els seus murs i atrezzo (CEM_WALLS, CEM_PROPS) afegeixen només obstacles.
-colliders.push(...buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CEM_WALLS, CEM_PROPS }));
+colliders.push(...buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CEM_WALLS, CEM_PROPS }).filter((c) => !D4_REMOVED_COLLIDERS.includes(c.id))); // D.4: sense pal del cartell, sense el seu obstacle
 // Fase D.3: cripta secreta (nivell −1), escala i tauleta de la caixa-pista. L'accés per la paret de l'altar només s'obre quan SD és 'open'
 // (CH-N-B es parteix en dues peces; amb SD tancada tot és idèntic a abans).
 colliders.push(...buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CRYPT_WALLS, CRYPT_PROPS }));
 const cryptAccess = createCryptAccess(colliders, CRYPT);
+// Fase D.4: la reixa del cementiri. Substitueix el collider sòlid de M-E3 pel pilar nord (sempre) i el bloc de l'obertura (fins que la reixa és oberta).
+const cemeteryGate = createCemeteryGate(colliders, CEM_GATE, CEM_GATE_MECH);
 
 // Porta física de l'església (D1): dues fulles que giren. Les seves col·lisions (segments)
 // s'afegeixen a la mateixa llista i es MOUEN amb les fulles; doors.js en calcula l'estat.
@@ -430,10 +435,13 @@ let eyeY = EYE_HEIGHT;
 // Línia de visió de les portes de casa: només obstacles massissos (parets, escales), no els mobles baixos.
 const doorOccluders = buildColliders({ BUILDINGS, WALLS, PROPS: [], FURNITURE: [], STAIRS });
 const cryptOccluders = buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CRYPT_WALLS }).filter((c) => !c.id.startsWith('CH-N-B-')); // les peces de CH-N-B no són obstacles de visió
-const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS, crypt: { def: CRYPT, occluders: cryptOccluders } });
+const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS, crypt: { def: CRYPT, occluders: cryptOccluders }, cemeteryGate: { gate: cemeteryGate, def: CEM_GATE, mech: CEM_GATE_MECH } });
 const cryptVisual = village.crypt;            // geometria i animacions de la cripta (grup propi, fora del poble)
 const cryptSounds = createCryptSounds();
 const noteView = createNoteView(CRYPT);
+// Fase D.4: sota terra la llum ambiental passa a un to CÀLID (el de les espelmes) i una mica més alta; a la superfície no canvia res.
+const baseHemiSky = hemiLight.color.clone(); const baseHemiGround = hemiLight.groundColor.clone();
+const deepHemiSky = new THREE.Color(CRYPT.ambient.hemiSkyDeep); const deepHemiGround = new THREE.Color(CRYPT.ambient.hemiGroundDeep);
 const baseFogNear = scene.fog.near; const baseFogFar = scene.fog.far;
 const baseFogColor = scene.fog.color.clone(); const deepFogColor = new THREE.Color(CRYPT.ambient.fogColorDeep);
 let cryptLightTarget = 0; let cryptLightX = CRYPT.lights[0].x; let cryptLightY = CRYPT.lights[0].y; let cryptLightZ = CRYPT.lights[0].z;
@@ -452,6 +460,12 @@ function syncPuzzleVisual() { // només toca la geometria quan l'estat ha canvia
     const ins = gameplay.secretDoor.isInserted(k.id);
     if (ins !== shown.inserted[k.id]) { shown.inserted[k.id] = ins; puzzleVisual.setKeyInserted(k.id, ins); }
   }
+}
+const cemGateShown = { leaf: NaN, drop: NaN };
+function syncCemeteryGateVisual() { // només toca la geometria quan l'estat ha canviat
+  const h = village.cemeteryGate; if (!h) return;
+  const a = cemeteryGate.leafAngle(); if (a !== cemGateShown.leaf) { cemGateShown.leaf = a; h.setLeafAngle(a); }
+  const d = cemeteryGate.lockDrop(); if (d !== cemGateShown.drop) { cemGateShown.drop = d; h.setLockDrop(d); }
 }
 const cryptShown = { disc: [NaN, NaN, NaN], seal: -1, unlock: -1, lid: -1, key: null, sel: -2 };
 function syncCryptVisual(px, pz, dirX, dirZ, t) { // només toca la geometria quan l'estat ha canviat
@@ -472,6 +486,7 @@ function cryptFrame(dt, seconds) { // arbres d'accés, llum, visibilitat i sons 
   village.root.visible = view.villageVisible;
   cryptVisual.interior.visible = view.interiorVisible;
   hemiLight.intensity = view.hemi; moonLight.intensity = view.moon;
+  hemiLight.color.copy(baseHemiSky).lerp(deepHemiSky, view.fogT); hemiLight.groundColor.copy(baseHemiGround).lerp(deepHemiGround, view.fogT);
   scene.fog.near = baseFogNear + (view.fogNearDeep - baseFogNear) * view.fogT;
   scene.fog.far = baseFogFar + (view.fogFarDeep - baseFogFar) * view.fogT;
   scene.fog.color.copy(baseFogColor).lerp(deepFogColor, view.fogT);
@@ -492,29 +507,10 @@ const moveResult = createMoveResult(); // objecte reutilitzat cada fotograma (se
 // -----------------------------------------------------
 // 7. CAPA D'INSTRUCCIONS (overlay)
 // -----------------------------------------------------
-const overlay = document.createElement('div');
-overlay.style.cssText = `
-  position: fixed; inset: 0;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.65);
-  color: #d8dcea;
-  font-family: Georgia, serif;
-  text-align: center;
-  cursor: pointer;
-  user-select: none;
-`;
-overlay.innerHTML = `
-  <div style="font-size: 32px; margin-bottom: 16px;">The Forgotten Village</div>
-  <div style="font-size: 20px; margin-bottom: 24px;">Clica per començar</div>
-  <div style="font-size: 16px; line-height: 1.8; opacity: 0.85;">
-    W A S D — moure's<br>
-    Ratolí — mirar al voltant<br>
-    E — interactuar (portes, calaixos, claus)<br>
-    Esc — menú de pausa (inventari, documents, mapa, guardar i carregar)
-  </div>
-`;
-document.body.appendChild(overlay);
+// Fase D.4: pantalla inicial «EL POBLE» (src/ui/titleScreen.js); main.js només la mostra/amaga amb `overlay.style.display`.
+installTheme();
+document.title = GAME_TITLE;
+const overlay = createTitleScreen(document.body);
 
 // Indicador de la porta (només visible a prop de la porta de l'església, amb el ratolí capturat).
 // pointer-events: none → no intercepta clics ni afecta el pointer lock.
@@ -523,7 +519,7 @@ doorHint.style.cssText = `
   position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
   padding: 6px 14px; display: none; pointer-events: none; user-select: none;
   background: rgba(0, 0, 0, 0.45); color: #d8dcea; border-radius: 4px;
-  font-family: Georgia, serif; font-size: 16px;
+  font-family: ${FONT_TEXT}; font-size: 19px; letter-spacing: 0.5px;
 `;
 document.body.appendChild(doorHint);
 // Missatges (examinar la porta, recollir una clau...) i inventari mínim. Tots amb pointer-events: none.
@@ -532,14 +528,14 @@ messageBox.style.cssText = `
   position: fixed; left: 50%; bottom: 20%; transform: translateX(-50%); max-width: 70%;
   padding: 10px 18px; display: none; pointer-events: none; user-select: none; text-align: center;
   background: rgba(0, 0, 0, 0.6); color: #e6dcc0; border-radius: 4px;
-  font-family: Georgia, serif; font-size: 18px; line-height: 1.4;
+  font-family: ${FONT_TEXT}; font-size: 21px; line-height: 1.35;
 `;
 document.body.appendChild(messageBox);
 const inventoryBox = document.createElement('div');
 inventoryBox.style.cssText = `
   position: fixed; left: 16px; top: 16px; padding: 8px 12px; display: none; pointer-events: none; user-select: none;
   background: rgba(0, 0, 0, 0.45); color: #d8dcea; border-radius: 4px;
-  font-family: Georgia, serif; font-size: 15px; line-height: 1.5;
+  font-family: ${FONT_TEXT}; font-size: 18px; line-height: 1.4;
 `;
 document.body.appendChild(inventoryBox);
 
@@ -693,6 +689,7 @@ function updatePlayer(dt) {
   gameplay.update(dt, camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw), { level: playerLevel, feetY });
   syncPuzzleVisual();
   syncHouseDoors();
+  syncCemeteryGateVisual();
   cryptFrame(dt, gameTime);
   syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
   trackProgress();
@@ -718,7 +715,7 @@ const saveDefs = {
   KEYS, CRYPT, SECRET_DOOR, houseDoorIds,
   churchLimits: { min: (churchSwing.minAngleDeg * Math.PI) / 180, max: (churchSwing.maxAngleDeg * Math.PI) / 180 },
   documentIds: documents.knownIds(), noteDocumentId: DOCUMENT_IDS.symbolNote, zoneIds: mapData.zones.map((z) => z.id),
-  levelSplit: FLOORS.levelSplit, levelSplitDown: CRYPT_FLOORS.levelSplitDown, mapLimit: MAP_LIMIT,
+  levelSplit: FLOORS.levelSplit, levelSplitDown: CRYPT_FLOORS.levelSplitDown, mapLimit: MAP_LIMIT, CEM_AREA,
 };
 let storage = null;
 try { storage = window.localStorage; } catch (e) { storage = null; }
@@ -731,7 +728,7 @@ function setPose(p) {
   velocity.set(0, 0, 0);
   camera.rotation.y = yaw; camera.rotation.x = pitch;
 }
-const mapFlags = () => ({ sdOpen: gameplay.secretDoor.state === 'open', cemeteryOpen: false }); // el cementiri no s'obre fins a la Fase D.4
+const mapFlags = () => ({ sdOpen: gameplay.secretDoor.state === 'open', cemeteryOpen: cemeteryGate.isOpen() }); // Fase D.4: el cementiri és accessible quan la reixa és oberta
 function trackProgress() { // documents descoberts i zones del mapa (cada fotograma de joc; molt barat)
   if (gameplay.crypt && gameplay.crypt.note.seen()) documents.discover(DOCUMENT_IDS.symbolNote);
   mapProgress.update(camera.position.x, camera.position.z, playerLevel, mapFlags());
@@ -740,7 +737,7 @@ const saveCtx = () => ({ gameplay, getPose, setPose, documents, mapProgress, col
 
 // Després de carregar: la geometria, la llum i el HUD es posen al dia sense fer avançar el temps de joc.
 function refreshWorld() {
-  syncDoorVisual(); syncPuzzleVisual(); syncHouseDoors();
+  syncDoorVisual(); syncPuzzleVisual(); syncHouseDoors(); syncCemeteryGateVisual();
   cryptFrame(0, gameTime);
   syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
   trackProgress(); updateHud();

@@ -947,7 +947,25 @@ export const CRYPT = {
     { id: 'CL-SALA-W', x: -3.9, y: -1.95, z: -33.4 },
     { id: 'CL-GUARDIA-S', x: -9.3, y: -1.95, z: -32.0 },
   ],
-  light: { color: 0xffb468, intensity: 9, distance: 8, decay: 2 }, // D.3.1: abans 6 / 6,5 (massa fosca)
+  light: { color: 0xffb468, intensity: 22, distance: 13, decay: 2 }, // D.4: abans 9 / 8 (D.3.1) i 6 / 6,5 (D.3): encara massa fosca
   // Il·luminació global soterrada: s'interpola amb la fondària (vegeu src/player/crypt.js → undergroundView).
-  ambient: { hemiSurface: 1.5, hemiDeep: 0.42, moonSurface: 1.2, moonDeep: 0, fogNearDeep: 2.5, fogFarDeep: 16, fogColorDeep: 0x050608 },
+  ambient: { hemiSurface: 1.5, hemiDeep: 0.85, moonSurface: 1.2, moonDeep: 0, fogNearDeep: 4, fogFarDeep: 20, fogColorDeep: 0x050608,
+    hemiSkyDeep: 0xb08a62, hemiGroundDeep: 0x3a2a1e }, // D.4: ambient més alt i CÀLID sota terra (color de la llum hemisfèrica quan s'és a la cripta)
 };
+
+// =====================================================================
+// FASE D.4 — MECANISME DE LA REIXA DEL CEMENTIRI (només dades NOVES; CEM_GATE i la resta de dades aprovades no canvien).
+// La reixa (CEM_GATE, sobre M-E3) s'obre amb KEY-C: primer cau el cadenat (`lockSeconds`) i després la fulla gira `openDeg` graus cap a DINS
+// del cementiri (cap a l'est) fins a quedar arran del mur sud del vestíbul (CW-S3). 88° i no 90°: la fulla no toca mai el mur.
+// Col·lisió: M-E3 (z −9→−7) es parteix en el pilar nord (sempre sòlid, z −9→−8,4) i el bloc de l'obertura (z −8,4→−7, sòlid mentre la
+// reixa no és del tot oberta). Oberta, queda un pas de 1,4 m (el jugador hi cap: ø 0,7 m).
+// =====================================================================
+export const CEM_GATE_MECH = {
+  keyId: 'KEY-C',
+  openDeg: 88, lockSeconds: 0.7, swingSeconds: 2.6,
+  interact: { maxDistance: 1.8, coneDeg: 60 },
+};
+
+// Fase D.4: el pal del cartell CT2 s'ha eliminat (el taulell va directament a la paret de pedra). El seu obstacle circular (CEM_PROPS → CT2.collision)
+// ja no correspon a res visible i es retira de la llista de col·lisions del joc (main.js). Les dades de CT2 no s'han tocat.
+export const D4_REMOVED_COLLIDERS = ['CT2'];

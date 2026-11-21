@@ -1516,7 +1516,7 @@ function extrudeWall(shape, thick) {
 
 // Silueta d'una paret d'hastial (façana o fons): rectangle + frontó, amb l'arc de la porta
 // tallat des de terra (sense forat tancat perquè la porta toca y = 0).
-function gableShape(halfW, eave, ridge, door, windows = []) {
+function gableShape(halfW, eave, ridge, door, windows = [], extraHoles = []) {
   const s = new THREE.Shape();
   s.moveTo(-halfW, 0);
   if (door) {
@@ -1530,6 +1530,7 @@ function gableShape(halfW, eave, ridge, door, windows = []) {
   s.lineTo(halfW, eave);
   s.lineTo(0, ridge);
   s.lineTo(-halfW, eave);
+  for (const h of extraHoles) s.holes.push(h);   // forats addicionals (Fase D.4: el pas de la porta secreta a la paret del fons de l'església)
   return windowHoles(s, windows);
 }
 
@@ -1644,7 +1645,14 @@ function buildNave(group, mats, building, seed) {
   b.setFrame(null);
   const nInfo = faceInfo(fp, 'north');
   b.setFrame(nInfo.frame);
-  b.add('stone', extrudeWall(gableShape(nInfo.len / 2, eave, ridge, null), tN), 0, 0, 0, { tint: st.wall, colorFn: depthShade(tN, inner) });
+  // Fase D.4: la paret del fons de la nau té un PAS REAL on hi ha la porta secreta (mateix forat apuntat que el marc de SD). Abans era massissa i, un cop
+  // oberta SD, des de l'escala de la cripta es veia una paret grisa de pedra just a la sortida. Només es forada el pas; la resta de la paret no canvia.
+  const sdHoles = [];
+  if (SECRET_DOOR.buildingId === building.id && SECRET_DOOR.face === 'north') {
+    const xl = (SECRET_DOOR.center.x - nInfo.center) * nInfo.sign;
+    sdHoles.push(gothicHole(xl, SECRET_DOOR.width, 0.02, SECRET_DOOR.height - 0.7 - 0.02, 0.7));
+  }
+  b.add('stone', extrudeWall(gableShape(nInfo.len / 2, eave, ridge, null, [], sdHoles), tN), 0, 0, 0, { tint: st.wall, colorFn: depthShade(tN, inner) });
   b.setFrame(null);
 
   const sideInfo = {};
@@ -2830,8 +2838,7 @@ function buildSecretDoor(mats, parent) {
   b.add('stone', frame, 0, 0, 0, { tint: 0x8a90a4 });
   b.box('stone', { xMin: -1.62, xMax: 1.62, yMin: 3.3, yMax: 3.42, zMin: 0, zMax: 0.24 }, 0x9aa0b2);   // cornisa
   b.box('stone', { xMin: -0.7, xMax: 0.7, yMin: 0, yMax: 0.04, zMin: 0, zMax: 0.3 }, 0x7a8092);         // llindar
-  // Foscor del darrere (placa negra dins l'obertura).
-  b.add('glass', gothicGeometry(SD.width, straight - 0.02, apex, 0.01), 0, 0.02, 0.005, { tint: 0x020307 });
+  // (Fase D.4: ja no hi ha la placa negra dins l'obertura: la paret del fons té un pas real i, amb SD oberta, es veu l'escala de la cripta.)
 
   // Ranures de ferro (a les dovelles) amb la gravació del símbol a sobre.
   for (const s of SD.slots) {
@@ -3367,13 +3374,17 @@ function buildDecor(mats, parent) {
   // vegetació). Mai sobre les zones transitables: l'empedrat és continu.
   const fnt = PROPS.find((p) => p.id === 'FNT');
   const earth = [0x4b4a3e, 0x434a38, 0x50493b, 0x3f4535]; // tons apagats, a prop de l'empedrat
+  // Fase D.4: la decoració no pot caure DINS del pou de l'escala de la cripta (herbes i molsa al replà, davant de la sortida).
+  const shaftBox = CRYPT.shaft.outer;
+  const inShaft = (x, z, m = 0) => x > shaftBox.xMin - m && x < shaftBox.xMax + m && z > shaftBox.zMin - m && z < shaftBox.zMax + m;
   const marginPatch = (x, z) => {
     const m = 0.5; // semidiagonal d'un pla de 0,7 m girat
     if (nearProp(x, z, 0.5) || nearDoor(x, z, 1.4)) return;
     for (const [ox, oz] of [[0, 0], [m, m], [-m, m], [m, -m], [-m, -m]]) if (insideSolid(x + ox, z + oz, null)) return;
     const saved = b.frame; // x, z són coordenades de MÓN: apartem el frame local actiu
     b.setFrame(null);
-    b.add('patch', new THREE.PlaneGeometry(0.7, 0.7).rotateX(-Math.PI / 2), x, 0.035, z, { rotY: r() * Math.PI, tint: jit(earth[Math.floor(r() * earth.length)], 0.06, r) });
+    const opts = { rotY: r() * Math.PI, tint: jit(earth[Math.floor(r() * earth.length)], 0.06, r) }; // (els números aleatoris es gasten igual: la resta del decorat no canvia)
+    if (!inShaft(x, z, m)) b.add('patch', new THREE.PlaneGeometry(0.7, 0.7).rotateX(-Math.PI / 2), x, 0.035, z, opts);
     b.setFrame(saved);
   };
 
@@ -3392,15 +3403,17 @@ function buildDecor(mats, parent) {
         const [ex1, ez1] = frameToWorld(info.frame, xl - mw / 2, 0.075);
         const [ex2, ez2] = frameToWorld(info.frame, xl + mw / 2, 0.075);
         if (nearDoor(wx, wz, 1.3) || nearProp(wx, wz, 0.25) || nearProp(ex1, ez1, 0.05) || nearProp(ex2, ez2, 0.05)) continue;
+        const mossInShaft = inShaft(wx, wz, 0.75) || inShaft(ex1, ez1) || inShaft(ex2, ez2);   // D.4: res dins del pou de la cripta
         if (insideSolid(ex1, ez1, building.id) || insideSolid(ex2, ez2, building.id)) continue;
-        b.add('moss', new THREE.PlaneGeometry(mw, mw / 2), xl, mw / 4 + 0.02, 0.075 + bump, { tint: jit(0xffffff, 0.12, r) });
+        const mossOpts = { tint: jit(0xffffff, 0.12, r) };
+        if (!mossInShaft) b.add('moss', new THREE.PlaneGeometry(mw, mw / 2), xl, mw / 4 + 0.02, 0.075 + bump, mossOpts);
         if (r() < 0.8) {
           const s = 0.35 + r() * 0.2; const gx = xl + (r() - 0.5) * 0.8;
           const gz = 0.1 + s / 2 + bump; // el pla creuat no entra a la paret
           const [tx, tz] = frameToWorld(info.frame, gx, gz);
           if (!insideSolid(tx, tz, building.id) && !nearProp(tx, tz, 0.1) && !nearDoor(tx, tz, 1.3)) {
-            b.add('grass', new THREE.PlaneGeometry(s, s * 0.9), gx, s * 0.45, gz, { tint: jit(0xffffff, 0.15, r) });
-            b.add('grass', new THREE.PlaneGeometry(s, s * 0.9), gx, s * 0.45, gz, { rotY: Math.PI / 2, tint: jit(0xffffff, 0.15, r) });
+            const g1 = { tint: jit(0xffffff, 0.15, r) }; const g2 = { rotY: Math.PI / 2, tint: jit(0xffffff, 0.15, r) };
+            if (!inShaft(tx, tz, 0.3)) { b.add('grass', new THREE.PlaneGeometry(s, s * 0.9), gx, s * 0.45, gz, g1); b.add('grass', new THREE.PlaneGeometry(s, s * 0.9), gx, s * 0.45, gz, g2); }
             if (r() < 0.5) marginPatch(...frameToWorld(info.frame, gx, 0.55));
           }
         }
@@ -4110,11 +4123,12 @@ function buildCemeteryGate(mats, parent) {
   }
   for (let k = 0; k < 9; k++) lb.add('plainD', new THREE.BoxGeometry(0.045, 0.05, 0.05), -0.03 + (lr() - 0.5) * 0.01, 0.35 + lr() * 1.9, -0.1 - lr() * (L.length - 0.2), { tint: lrust(), rotY: lr() }); // taques de rovell
   lb.finish();
+  markDynamic(leaf);   // Fase D.4: la fulla gira (matriu viva)
   g.add(leaf);
 
   // Cadenat i cadena (grup propi, estàtic)
-  const lock = makeGroup('CemeteryGateLock', 'CEM-GATE-LOCK');
-  const kb = new Builder(lock, mats, 8202);
+  const lockBody = makeGroup('CemeteryGateLockBody');   // geometria en coordenades del món; penja d'un pivot situat al cadenat
+  const kb = new Builder(lockBody, mats, 8202);
   const ci = () => jit(0x2c2a2a, 0.15, kb.rnd);
   const lz = L.hingeZ - L.length + 0.05;          // brida de la vora lliure (barrot de l'extrem)
   kb.add('plainD', new THREE.TorusGeometry(0.045, 0.012, 4, 8), L.x - 0.058, pl.y + 0.1, lz, { tint: ci(), rotY: Math.PI / 2 }); // anella a la vora lliure
@@ -4128,23 +4142,30 @@ function buildCemeteryGate(mats, parent) {
   kb.box('plainD', { xMin: pl.x - 0.034, xMax: pl.x - 0.025, yMin: pl.y - 0.05, yMax: pl.y + 0.04, zMin: pl.z - 0.007, zMax: pl.z + 0.007 }, cr);
   kb.box('plainD', { xMin: pl.x - 0.034, xMax: pl.x - 0.025, yMin: pl.y - 0.01, yMax: pl.y + 0.003, zMin: pl.z - 0.03, zMax: pl.z + 0.03 }, cr);
   kb.finish();
+  const lock = makeGroup('CemeteryGateLock', 'CEM-GATE-LOCK');   // pivot al centre del cadenat: gira i cau sobre si mateix (no al voltant de l'origen del món)
+  lock.position.set(pl.x, pl.y, pl.z); lockBody.position.set(-pl.x, -pl.y, -pl.z); lock.add(lockBody);
+  markDynamic(lock);   // Fase D.4: el cadenat cau en obrir-se
   g.add(lock);
+
+  // Control visual (Fase D.4): l'estat el calcula src/player/cemeteryGate.js; aquí només es mouen la fulla i el cadenat.
+  // La fulla gira cap a dins del cementiri (est): amb l'eix Y, un gir negatiu porta l'extrem lliure (z local negativa) cap a +x.
+  const LOCK_FALL = pl.y - 0.07;                 // el cos del cadenat acaba tocant el terra
+  const handles = {
+    leaf, lock,
+    setLeafAngle(a) { leaf.rotation.y = -a; },
+    setLockDrop(d) { lock.position.y = pl.y - LOCK_FALL * d * d; lock.rotation.z = 0.35 * d; lock.rotation.x = 0; },
+  };
+  return handles;
 }
 
 // ---------------------------------------------------------------------
-// CARTELL CT2 «CEMENTIRI →» (carreró est). Fase D.3.1: el taulell va ENGANXAT a la cara sud del mur M-N1 (la paret que té al darrere, z = −9),
-// amb la cara posterior just contra la pedra (ni flotant ni dins del mur) i dues brides de ferro cargolades a la paret. El text mira cap al
-// sud, cap a la plaça, des d'on s'arriba. El pal original (collider aprovat: cercle r 0,2 a (5,5; −7,6)) es manté al seu lloc com a pal vell
-// sense taulell. El taulell conserva mides, fusta i text pixel-art de la D.2.
+// CARTELL CT2 «CEMENTIRI →» (carreró est). Fase D.4: SENSE PAL. El taulell va fixat directament a la cara sud del mur de pedra M-N1
+// (z = −9, la paret que té al darrere): la cara posterior toca la pedra (ni flotant ni dins del mur) i dues brides de ferro, cargolades a
+// la paret, el subjecten. El text mira cap al sud, cap a la plaça, des d'on s'hi arriba. Conserva mides, fusta i text pixel-art de la D.2 i
+// el seu centre aprovat (x = 5,5). Com que ja no hi ha pal, el seu obstacle circular s'ha retirat del joc (vegeu D4_REMOVED_COLLIDERS).
 // ---------------------------------------------------------------------
-const SIGN_SHIFT_X = 1.0;
 function cemSign(b, item) {
-  const r = b.rnd; const v = item.visual; const { x: px, z } = v.center; const bd = v.board;
-  const x = px + SIGN_SHIFT_X;                               // el taulell va 1 m a l'est del pal perquè el pal no tapi el text vist des del sud
-  const capH = 0.12; const postH = v.height - capH;
-  const post = new THREE.CylinderGeometry(0.092, 0.112, postH, 7, 1); scaleUV(post, 1.2, postH / 2);
-  b.add('wood', post, px, postH / 2, z, { tint: jit(0x9a8c7c, 0.08, r), rotY: r() * 3 });
-  b.add('wood', new THREE.ConeGeometry(0.13, capH, 7), px, postH + capH / 2, z, { tint: jit(0x8a7d6e, 0.08, r) });
+  const r = b.rnd; const v = item.visual; const { x } = v.center; const bd = v.board;
   const wall = WALLS.find((q) => q.id === 'M-N1') || fail('CT2: falta el mur M-N1');
   const wz = wall.visual.footprint.zMax;                     // cara sud del mur (z = −9)
   const bz = wz + bd.thickness / 2;                          // cara posterior del taulell exactament sobre la pedra
@@ -4154,7 +4175,6 @@ function cemSign(b, item) {
   const sd = bd.thickness + 0.018;                           // les brides sobresurten 1,8 cm del taulell i giren amb ell
   for (const dy of [-0.17, 0.17]) b.add('plainD', new THREE.BoxGeometry(1.24, 0.044, sd).translate(0, dy, 0).rotateZ(tilt), x, by, wz + sd / 2, { tint: jit(pickOf(CEM_IRON, r), 0.1, r) });
   for (const dx of [-0.58, 0.58]) for (const dy of [-0.17, 0.17]) b.add('plainD', new THREE.BoxGeometry(0.05, 0.06, 0.012).translate(dx, dy, 0).rotateZ(tilt), x, by, wz + sd + 0.006, { tint: IRON_D }); // caps de clau
-  b.add('moss', new THREE.PlaneGeometry(0.5, 0.25), px, 0.13, z + 0.12, { tint: jit(0xffffff, 0.1, r) });
 }
 
 // ---------------------------------------------------------------------
@@ -4353,7 +4373,7 @@ const CEM_DRAW = {
 function buildCemetery(mats, parent) {
   const group = makeGroup('Cemetery', 'CEMETERY');
   buildCemeteryWalls(mats, group);
-  buildCemeteryGate(mats, group);
+  const gateHandles = buildCemeteryGate(mats, group);
 
   const soil = new THREE.Mesh(cemSoilGeometry(mulberry32(9060)), mats.soil);
   soil.name = 'Cemetery-soil';
@@ -4375,6 +4395,7 @@ function buildCemetery(mats, parent) {
   b.finish();
   group.add(props);
   parent.add(group);
+  return gateHandles;
 }
 
 // ---------------------------------------------------------------------
@@ -4496,8 +4517,7 @@ function buildCrypt(mats, scene) {
   // Replà de dalt i folre del pas dins del gruix de CH-N-B (z −21→−20,4): muntants, llinda i terra
   bb.add('floor', flatQuad(1.8, 1.2, true, 8), 0, 0.012, -21.6, { tint: CR.floor });
   bb.add('floor', flatQuad(1.4, 0.6, true, 8), 0, 0.014, -20.7, { tint: CR.floor });
-  for (const sx of [-1, 1]) { const g = new THREE.PlaneGeometry(0.6, 2.3); g.rotateY(sx < 0 ? Math.PI / 2 : -Math.PI / 2); bb.add('plain', g, sx * 0.7, 1.15, -20.7, { tint: CR.stone }); }
-  { const g = new THREE.PlaneGeometry(1.4, 0.6); g.rotateX(Math.PI / 2); bb.add('plain', g, 0, 2.3, -20.7, { tint: CR.ceil }); }
+  // (Fase D.4: els muntants i la llinda plana d'abans s'han tret: el gruix del pas el dibuixa ara la mateixa paret de l'església, amb l'arc apuntat.)
   // Fons del pou damunt la boca de l'antecambra (z −26,7): tanca el pou per sobre de la volta
   bb.add('stone', new THREE.PlaneGeometry(1.8, sh.roofY + 0.75), 0, (sh.roofY - 0.75) / 2, -26.7, { tint: CR.shaft });
   bb.finish();
@@ -4754,7 +4774,7 @@ export function buildVillage(scene, options = {}) {
   buildDoors(mats, root, doorHandles);
   buildGate(mats, root);
   buildForest(mats, root);
-  if (opts.cemetery) buildCemetery(mats, root);
+  const cemeteryGate = opts.cemetery ? buildCemetery(mats, root) : null; // Fase D.4: control visual de la reixa
   if (opts.cemetery) buildClueBox(mats, root); // Fase D.3: caixa-pista a la casa C (pis superior)
   const furniture = buildFurniture(mats, root, opts);
   if (opts.cobwebs) buildCobwebs(mats, root);
@@ -4806,5 +4826,5 @@ export function buildVillage(scene, options = {}) {
     setContainerProgress: furniture.handles.setContainer,
     setKeyVisible: furniture.handles.setKeyVisible,
   };
-  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, crypt, dispose };
+  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, crypt, cemeteryGate, dispose };
 }

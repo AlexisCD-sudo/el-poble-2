@@ -98,7 +98,8 @@ export function createSecretDoor(def) {
 // ---------------------------------------------------------------------
 // opts: { KEYS, SECRET_DOOR, churchDoor (de doors.js), houseDoors (de houseDoors.js, Fase C: D2, D3, D4; opcional),
 //         occluders (col·lisions massisses per a la línia de visió de les portes de casa; opcional), playerRadius (0,35),
-//         crypt (Fase D.3, opcional): { def: CRYPT, occluders: parets de la cripta } → afegeix la caixa-pista, l'altar dels discs, el sarcòfag i KEY-C }
+//         crypt (Fase D.3, opcional): { def: CRYPT, occluders: parets de la cripta } → afegeix la caixa-pista, l'altar dels discs, el sarcòfag i KEY-C,
+//         cemeteryGate (Fase D.4, opcional): { gate (de cemeteryGate.js), def: CEM_GATE, mech: CEM_GATE_MECH } → la reixa del cementiri, que s'obre amb KEY-C }
 // `view` (opcional a update/pressE) = { level, feetY }: pis i alçada dels peus del jugador (Fase C.1).
 export function createGameplay(opts) {
   const { KEYS, SECRET_DOOR, churchDoor, houseDoors = [], playerRadius = 0.35 } = opts;
@@ -200,6 +201,27 @@ export function createGameplay(opts) {
     };
   }
 
+  // 6. Reixa del cementiri (Fase D.4): només si es passa `opts.cemeteryGate`. S'obre amb KEY-C (que continua a l'inventari). Interacció espacial:
+  //    ≤ 1,8 m del pany, mirant-lo (con de 60°), al nivell 0 i sense cap paret pel mig (no s'obre des de lluny ni a través del mur).
+  const cg = opts.cemeteryGate || null;
+  if (cg) {
+    const keyId = cg.mech.keyId;
+    targets.push({
+      id: cg.def.id, x: cg.def.interactionPoint.x, z: cg.def.interactionPoint.z, range: cg.mech.interact.maxDistance, priority: 0,
+      spatial: { maxDistance: cg.mech.interact.maxDistance, coneCos: Math.cos((cg.mech.interact.coneDeg / 2) * Math.PI / 180), level: 0, baseY: 0, maxDy: DOOR_INTERACTION.maxDy },
+      enabled: () => cg.gate.state === 'closed',
+      prompt: () => (inventory.has(keyId) ? 'E — obrir la reixa amb la clau' : 'E — examinar la reixa'),
+      use: () => {
+        if (!inventory.has(keyId)) {
+          say('La reixa està tancada amb un cadenat vell i una cadena gruixuda. No cedeix: caldria una clau especial.', 6);
+          return { action: 'locked' };
+        }
+        if (cg.gate.open()) say('La clau de la creu gira dins el cadenat. La cadena cau i la reixa grinyola, lenta, cap a dins del cementiri.', 7);
+        return { action: 'open' };
+      },
+    });
+  }
+
   // Definició d'un objecte de l'inventari a partir del seu id (per recuperar-lo en carregar una partida; mai se'n dupliquen).
   const itemDef = (id) => {
     const k = keyDef(id);
@@ -211,13 +233,13 @@ export function createGameplay(opts) {
 
   let current = null;
   const api = {
-    inventory, secretDoor, containers, targets, houseDoors: doorsById, crypt, churchDoor,
+    inventory, secretDoor, containers, targets, houseDoors: doorsById, crypt, churchDoor, cemeteryGate: cg ? cg.gate : null,
     knownItemIds: allKeyIds,
     // --- Desar / carregar (Fase D.3.1) ---
     // Tot l'estat de la partida que viu aquí. Un estat transitori es normalitza al seu destí; `isSettled()` diu si NO n'hi ha cap en curs.
     isSettled() {
       return !churchDoor.isAnimating() && secretDoor.isSettled() && Object.values(containers).every((c) => c.isSettled())
-        && houseDoors.every((hd) => hd.isSettled()) && (!crypt || crypt.isSettled());
+        && houseDoors.every((hd) => hd.isSettled()) && (!crypt || crypt.isSettled()) && (!cg || cg.gate.isSettled());
     },
     snapshot() {
       const cont = {}; for (const [id, c] of Object.entries(containers)) cont[id] = c.snapshot();
@@ -227,6 +249,7 @@ export function createGameplay(opts) {
         churchDoor: { angles: churchDoor.angles().slice() },
         houseDoors: hds, containers: cont, secretDoor: secretDoor.snapshot(),
         crypt: crypt ? crypt.snapshot() : null,
+        ...(cg ? { cemeteryGate: cg.gate.snapshot() } : {}),
       };
     },
     // Aplica un estat JA VALIDAT (saveGame.validateSave). No emet esdeveniments ni sons i buida missatges i objectiu.
@@ -239,6 +262,7 @@ export function createGameplay(opts) {
       for (const [id, c] of Object.entries(containers)) c.restore(snap.containers[id] || { opened: false });
       secretDoor.restore(snap.secretDoor);
       if (crypt && snap.crypt) crypt.restore(snap.crypt);
+      if (cg) cg.gate.restore(snap.cemeteryGate || { open: false });   // partides de la D.3.1 (sense aquest camp): reixa tancada
       msg.text = ''; msg.ttl = 0; current = null;
     },
     get message() { return msg.ttl > 0 ? msg.text : ''; },
@@ -255,6 +279,7 @@ export function createGameplay(opts) {
       for (const c of Object.values(containers)) c.update(dt);
       for (const hd of houseDoors) hd.update(dt);
       if (crypt) crypt.update(dt, px, pz, dirX, dirZ);
+      if (cg) cg.gate.update(dt);
       if (msg.ttl > 0) msg.ttl -= dt;
       current = pickTarget(targets, px, pz, dirX, dirZ, view);
     },
