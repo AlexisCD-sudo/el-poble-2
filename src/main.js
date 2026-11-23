@@ -8,7 +8,7 @@ import { createHouseDoor } from './player/houseDoors.js';
 import { createFloors, smoothHeight } from './player/floors.js';
 import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR, KEYS, CEM_WALLS, CEM_PROPS, CEM_AREA, CEM_GATE, CEM_GATE_MECH, D4_REMOVED_COLLIDERS, CRYPT, CRYPT_WALLS, CRYPT_PROPS, CRYPT_FLOORS } from './world/layout.js';
 import { createCryptAccess, undergroundView } from './player/crypt.js';
-import { installTheme, FONT_TEXT } from './ui/theme.js';
+import { installTheme, FONT_PIXEL, TEXT_MIN, PIXEL_GRID } from './ui/theme.js';
 import { createTitleScreen, GAME_TITLE } from './ui/titleScreen.js';
 import { createCemeteryGate } from './player/cemeteryGate.js'; // Fase D.4: reixa del cementiri (s'obre amb KEY-C)
 import { createNoteView } from './ui/noteView.js';
@@ -519,23 +519,23 @@ doorHint.style.cssText = `
   position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
   padding: 6px 14px; display: none; pointer-events: none; user-select: none;
   background: rgba(0, 0, 0, 0.45); color: #d8dcea; border-radius: 4px;
-  font-family: ${FONT_TEXT}; font-size: 19px; letter-spacing: 0.5px;
+  font-family: ${FONT_PIXEL}; font-synthesis: none; font-size: ${PIXEL_GRID}px; line-height: 1.1; letter-spacing: 0;
 `;
 document.body.appendChild(doorHint);
 // Missatges (examinar la porta, recollir una clau...) i inventari mínim. Tots amb pointer-events: none.
 const messageBox = document.createElement('div');
 messageBox.style.cssText = `
-  position: fixed; left: 50%; bottom: 20%; transform: translateX(-50%); max-width: 70%;
+  position: fixed; left: 50%; bottom: 20%; transform: translateX(-50%); max-width: min(78%, 900px);
   padding: 10px 18px; display: none; pointer-events: none; user-select: none; text-align: center;
   background: rgba(0, 0, 0, 0.6); color: #e6dcc0; border-radius: 4px;
-  font-family: ${FONT_TEXT}; font-size: 21px; line-height: 1.35;
+  font-family: ${FONT_PIXEL}; font-synthesis: none; font-size: ${PIXEL_GRID}px; line-height: 1.2;
 `;
 document.body.appendChild(messageBox);
 const inventoryBox = document.createElement('div');
 inventoryBox.style.cssText = `
   position: fixed; left: 16px; top: 16px; padding: 8px 12px; display: none; pointer-events: none; user-select: none;
   background: rgba(0, 0, 0, 0.45); color: #d8dcea; border-radius: 4px;
-  font-family: ${FONT_TEXT}; font-size: 18px; line-height: 1.4;
+  font-family: ${FONT_PIXEL}; font-synthesis: none; font-size: ${TEXT_MIN}px; line-height: 1.2; max-width: calc(100vw - 56px);
 `;
 document.body.appendChild(inventoryBox);
 
@@ -545,7 +545,7 @@ document.body.appendChild(inventoryBox);
 // Només es pot activar com a resposta a un clic de l'usuari.
 function requestLock() {
   const r = renderer.domElement.requestPointerLock();
-  if (r && typeof r.catch === 'function') r.catch(() => { pause.onLockError(); pauseMenu.setHint('El navegador no ha deixat recuperar el ratolí. Torna a fer clic a «Tornar al joc».'); });
+  if (r && typeof r.catch === 'function') r.catch(() => { pause.onLockError(); pauseMenu.setHint('El navegador no ha deixat recuperar el ratolí. Torna a fer clic a "Tornar al joc".'); });
 }
 overlay.addEventListener('click', () => { requestLock(); });
 
@@ -567,7 +567,7 @@ document.addEventListener('pointerlockchange', () => {
 document.addEventListener('pointerlockerror', () => {
   console.warn('No s\'ha pogut capturar el ratolí.');
   pause.onLockError();
-  if (pause.started) pauseMenu.setHint('No s\'ha pogut recuperar el ratolí. Torna a fer clic a «Tornar al joc».');
+  if (pause.started) pauseMenu.setHint('No s\'ha pogut recuperar el ratolí. Torna a fer clic a "Tornar al joc".');
 });
 
 // -----------------------------------------------------
@@ -629,7 +629,7 @@ function updateHud() { // indicació d'E, missatge i inventari
   const msgText = gameplay.message;
   if (messageBox.textContent !== msgText) { messageBox.textContent = msgText; messageBox.style.display = msgText ? 'block' : 'none'; }
   const inv = gameplay.inventory.list();
-  const invText = inv.length ? `Inventari — ${inv.map((i) => i.name).join(' · ')}   (${inv.length}/${KEYS.length + 1} claus)` : '';
+  const invText = inv.length ? `Inventari - ${inv.map((i) => i.name).join(' · ')}   (${inv.length}/${KEYS.length + 1} claus)` : '';
   if (inventoryBox.textContent !== invText) { inventoryBox.textContent = invText; inventoryBox.style.display = invText ? 'block' : 'none'; }
 }
 
@@ -759,7 +759,7 @@ function doLoad() {
   const res = applyState(saveCtx(), r.data, saveDefs);
   if (!res.ok) { console.warn('Càrrega refusada:', res.errors); return { ok: false, message: res.error }; }
   refreshWorld();
-  return { ok: true, message: 'Partida carregada. Prem «Tornar al joc» per continuar.' };
+  return { ok: true, message: 'Partida carregada. Prem "Tornar al joc" per continuar.' };
 }
 const pauseMenu = createPauseMenu({
   drawMap,

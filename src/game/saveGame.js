@@ -199,10 +199,14 @@ export function writeSave(storage, data) {
   try { storage.setItem(SAVE_KEY, JSON.stringify(data)); return { ok: true }; } catch (e) { return { ok: false, error: 'El navegador no deixa desar (emmagatzematge ple o bloquejat).' }; }
 }
 
-// Data llegible («20/11/2026 00:30») d'un desat.
+// Data llegible d'un desat, amb paraules: «20 de novembre de 2026, 10 h 30 min». La font del joc (Pixel Monastery Script) escriu els números
+// com a xifres romanes i el zero no té glif: per això no hi ha «00» ni «:»; els minuts a zero s'ometen i la mitjanit s'escriu amb paraules.
+const MONTHS = ['gener', 'febrer', 'març', 'abril', 'maig', 'juny', 'juliol', 'agost', 'setembre', 'octubre', 'novembre', 'desembre'];
 export function formatSavedAt(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const p2 = (n) => String(n).padStart(2, '0');
-  return `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  const month = MONTHS[d.getMonth()]; const de = /^[aeiou]/.test(month) ? "d'" : 'de ';
+  const h = d.getHours(); const m = d.getMinutes();
+  const time = `${h === 0 ? 'mitjanit' : `${h} h`}${m ? ` ${m} min` : ''}`;
+  return `${d.getDate()} ${de}${month} de ${d.getFullYear()}, ${time}`;
 }

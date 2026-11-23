@@ -22,7 +22,7 @@ export function inventoryEntries(defs, ownedIds) {
 
 export function inventorySummary(entries) {
   const n = entries.filter((e) => e.collected).length;
-  return `${n} de ${entries.length} claus`;
+  return n === 0 ? `Cap clau de ${entries.length}` : `${n} de ${entries.length} claus`;   // el zero no té glif a la font del joc
 }
 
 // Documents: només els descoberts (res dels que no). `docs` = documents.list().

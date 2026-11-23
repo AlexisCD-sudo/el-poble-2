@@ -51,7 +51,7 @@ export function createSecretDoor(def) {
     isOpen() { return s.state === 'open'; },
     // Interacció amb E. Retorna { action: 'examine'|'insert'|'dark', keyId?, message }.
     interact(inventory) {
-      if (s.state === 'unlocked' || s.state === 'opening') return { action: 'examine', message: 'El mecanisme grinyola dins la paret… la porta es mou, lenta i pesada.' };
+      if (s.state === 'unlocked' || s.state === 'opening') return { action: 'examine', message: 'El mecanisme grinyola dins la paret... la porta es mou, lenta i pesada.' };
       if (s.state === 'open') return { action: 'dark', message: 'Una foscor freda s\'endinsa darrere la porta. Encara no és hora d\'entrar-hi.' };
       const next = slots.find((q) => !q.inserted && inventory.has(q.key));
       if (next) {
@@ -68,7 +68,7 @@ export function createSecretDoor(def) {
         const pending = slots.find((q) => !q.inserted);
         return { action: 'examine', message: `Només una ranura està ocupada. Encara falta la clau ${pending.key === 'KEY-A' ? 'del guardià (campana)' : 'dels oblidats (lluna)'}.` };
       }
-      return { action: 'examine', message: `Porta segellada. Cal inserir dues claus: una ranura té una campana gravada, l'altra una lluna. «${def.inscription}»` };
+      return { action: 'examine', message: `Porta segellada. Cal inserir dues claus: una ranura té una campana gravada, l'altra una lluna. "${def.inscription}"` };
     },
     // Desar / carregar (Fase D.3.1): només 'locked' i 'open' són estats quiets; 'unlocked' i 'opening' són animacions en curs.
     isSettled() { return s.state === 'locked' || s.state === 'open'; },
@@ -124,7 +124,7 @@ export function createGameplay(opts) {
   // 1. Porta de l'església (D1): la tecla E l'obre i la tanca (la lògica és a doors.js).
   targets.push({
     id: 'D1', x: churchDoor.centerX, z: churchDoor.hingeZ, range: churchDoor.interactRange, priority: 0,
-    prompt: () => (churchDoor.isOpen() ? 'E — tancar la porta' : 'E — obrir la porta'),
+    prompt: () => (churchDoor.isOpen() ? 'E - tancar la porta' : 'E - obrir la porta'),
     use: () => { churchDoor.toggle(); return null; },
   });
   // 1b. Portes de les cases (Fase C): comencen tancades; E les obre i les tanca (la lògica és a houseDoors.js).
@@ -135,7 +135,7 @@ export function createGameplay(opts) {
       id: hd.id, x: hd.interact.x, z: hd.interact.z, range: DOOR_INTERACTION.maxDistance, priority: 0,
       // Interacció espacial (Fase C.1): ≤ 1,8 m, davant (con de 60°), mateix pis, sense parets pel mig.
       spatial: { maxDistance: DOOR_INTERACTION.maxDistance, coneCos, level: hd.level || 0, baseY: 0, maxDy: DOOR_INTERACTION.maxDy },
-      prompt: () => (hd.isOpen() ? 'E — tancar la porta' : 'E — obrir la porta'),
+      prompt: () => (hd.isOpen() ? 'E - tancar la porta' : 'E - obrir la porta'),
       use: (px, pz) => {
         const r = hd.toggle(px, pz, playerRadius);
         if (!r.changed && r.message) say(r.message, 3);
@@ -149,7 +149,7 @@ export function createGameplay(opts) {
     targets.push({
       id: `OPEN-${k.container}`, x: open.x, z: open.z, range: 1.9, facing: 0.35, priority: 0.2,
       enabled: () => !containers[k.container].isOpen(),
-      prompt: () => (k.reveal === 'drawer' ? 'E — obrir el calaix' : 'E — obrir l\'arca'),
+      prompt: () => (k.reveal === 'drawer' ? 'E - obrir el calaix' : 'E - obrir l\'arca'),
       use: () => {
         containers[k.container].open();
         say(k.reveal === 'drawer' ? 'Obres el calaix. Entre draps vells hi brilla una clau de bronze.' : 'Alces la tapa de l\'arca. Sota una manta podrida hi ha una clau de ferro.');
@@ -160,7 +160,7 @@ export function createGameplay(opts) {
     targets.push({
       id: k.id, x: k.pos.x, z: k.pos.z, range: k.pickRange, facing: 0.35, priority: 1,
       enabled: () => containers[k.container].isOpen() && !taken.has(k.id),
-      prompt: () => `E — recollir la ${k.name.toLowerCase()}`,
+      prompt: () => `E - recollir la ${k.name.toLowerCase()}`,
       use: () => {
         taken.add(k.id);
         inventory.add({ id: k.id, name: k.name, description: keyDescription[k.material], symbol: k.symbol });
@@ -175,9 +175,9 @@ export function createGameplay(opts) {
     prompt: () => {
       if (secretDoor.state === 'locked') {
         const next = SECRET_DOOR.slots.find((q) => !secretDoor.isInserted(q.key) && inventory.has(q.key));
-        return next ? `E — inserir la ${keyDef(next.key).name.toLowerCase()}` : 'E — examinar la porta';
+        return next ? `E - inserir la ${keyDef(next.key).name.toLowerCase()}` : 'E - examinar la porta';
       }
-      return secretDoor.state === 'open' ? 'E — mirar la foscor' : '';
+      return secretDoor.state === 'open' ? 'E - mirar la foscor' : '';
     },
     use: () => {
       const r = secretDoor.interact(inventory);
@@ -210,7 +210,7 @@ export function createGameplay(opts) {
       id: cg.def.id, x: cg.def.interactionPoint.x, z: cg.def.interactionPoint.z, range: cg.mech.interact.maxDistance, priority: 0,
       spatial: { maxDistance: cg.mech.interact.maxDistance, coneCos: Math.cos((cg.mech.interact.coneDeg / 2) * Math.PI / 180), level: 0, baseY: 0, maxDy: DOOR_INTERACTION.maxDy },
       enabled: () => cg.gate.state === 'closed',
-      prompt: () => (inventory.has(keyId) ? 'E — obrir la reixa amb la clau' : 'E — examinar la reixa'),
+      prompt: () => (inventory.has(keyId) ? 'E - obrir la reixa amb la clau' : 'E - examinar la reixa'),
       use: () => {
         if (!inventory.has(keyId)) {
           say('La reixa està tancada amb un cadenat vell i una cadena gruixuda. No cedeix: caldria una clau especial.', 6);

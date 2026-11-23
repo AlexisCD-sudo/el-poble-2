@@ -112,7 +112,7 @@ export function createCryptGame(def, deps) {
   targets.push(crypt({
     id: C.id, x: C.center.x, z: C.center.z, range: C.range, facing: 0.5, priority: 0.3,
     spatial: { maxDistance: C.range, coneCos: Math.cos(35 * Math.PI / 180), level: 1, baseY: 2.75, maxDy: 0.5 },
-    prompt: () => (st.note ? 'E — tancar la nota' : 'E — examinar la caixa'),
+    prompt: () => (st.note ? 'E - tancar la nota' : 'E - examinar la caixa'),
     use: () => { st.note = !st.note; if (st.note) { st.noteSeen = true; emit('note'); } return null; },
   }));
   // 2. Altar dels tres discs.
@@ -123,9 +123,9 @@ export function createCryptGame(def, deps) {
     stand: (px, pz) => inFront(px, pz),
     prompt: () => {
       const i = aimedDisc(st.pose.px, st.pose.pz, st.pose.dirX, st.pose.dirZ);
-      if (i < 0) return 'E — girar un disc (mira’n un)';
+      if (i < 0) return 'E - girar un disc (mira’n un)';
       const cur = P.names[P.symbols[st.discs[i]]]; const nxt = P.names[P.symbols[(st.discs[i] + 1) % n]];
-      return `E — girar el disc ${discWord[i]} (${cur} → ${nxt})`;
+      return `E - girar el disc ${discWord[i]} (de ${cur} a ${nxt})`;
     },
     use: (px, pz, dirX, dirZ) => {
       const i = aimedDisc(px, pz, dirX, dirZ);
@@ -138,7 +138,7 @@ export function createCryptGame(def, deps) {
     id: 'CR-SARC-LID', x: S.interact.x, z: S.interact.z, range: S.interact.range, facing: 0.35, priority: 0.2,
     spatial: { maxDistance: S.interact.range, coneCos: -1, level: -1, baseY: -3.2, maxDy: 0.6 },
     enabled: () => st.sarc === 'locked' || st.sarc === 'unlocking' || st.sarc === 'unlocked',
-    prompt: () => (lidReady() ? 'E — alçar la tapa' : 'E — examinar el sarcòfag'),
+    prompt: () => (lidReady() ? 'E - alçar la tapa' : 'E - examinar el sarcòfag'),
     use: () => {
       if (lidReady()) {
         st.sarc = 'opening'; st.sarcT = 0; emit('lid');
@@ -154,7 +154,7 @@ export function createCryptGame(def, deps) {
     id: K.id, x: K.pos.x, z: K.pos.z, range: K.pickRange, facing: 0.35, priority: 1,
     spatial: { maxDistance: K.pickRange, coneCos: -1, level: -1, baseY: -3.2, maxDy: 0.6 },
     enabled: () => st.sarc === 'open' && !st.keyTaken,
-    prompt: () => `E — recollir la ${K.name.toLowerCase()}`,
+    prompt: () => `E - recollir la ${K.name.toLowerCase()}`,
     use: () => {
       st.keyTaken = true;
       inventory.add({ id: K.id, name: K.name, description: K.description, symbol: K.symbol });

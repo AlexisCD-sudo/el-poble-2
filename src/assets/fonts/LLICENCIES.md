@@ -1,12 +1,11 @@
-# Fonts del joc (EL POBLE)
+# Fonts del joc (El Poble)
 
-Les fonts es carreguen des d'aquests fitxers LOCALS: el joc no necessita cap servei extern ni connexió a internet per mostrar-les.
-Totes dues tenen la llicència SIL Open Font License 1.1 (lliure, també per a projectes comercials; vegeu els fitxers OFL-*.txt).
+Des de la Fase D.6 el joc fa servir UNA SOLA tipografia: **Pixel Monastery Script**. Es carrega des del fitxer LOCAL `PixelMonasteryScript.woff`: el joc no necessita cap servei extern ni connexió a internet per mostrar-la.
+Les fonts Gloock i Crimson Pro (SIL OFL 1.1) estan retirades del projecte: ja no s'utilitzen ni se'n distribueixen els fitxers.
 
-| Ús | Font | Fitxer | Autors |
-|----|------|--------|--------|
-| Títols (títol del joc, capçaleres) | Gloock | `Gloock-Regular.woff` | The Gloock Project Authors (https://github.com/duartp/gloock) |
-| Textos (menús, missatges, documents) | Crimson Pro (normal, cursiva i negreta) | `CrimsonPro-Regular.woff`, `CrimsonPro-Italic.woff`, `CrimsonPro-Bold.woff` | The Crimson Pro Project Authors (https://github.com/Fonthausen/CrimsonPro) |
-
-Els fitxers `.woff` són versions REDUÏDES (només el llatí i la puntuació necessària, incloent-hi tots els caràcters del català) de les fonts originals,
-fetes amb `fontTools`. L'OFL permet aquesta modificació i cap de les dues fonts declara un «Reserved Font Name».
+## Pixel Monastery Script — NO és OFL
+- Autor: Maroš Beťko (Betko), 2018. Tipus: Masaryk University Type Foundry — https://typefoundry.fi.muni.cz/pixel-monastery
+- El fitxer només declara «Copyright (c) 2018 by Maroš Betko. All rights reserved.» i la pàgina de descàrrega no n'indica cap llicència d'ús.
+- Decisió del projecte: ús en un joc de prova gratuït (itch.io, sense ingressos), AMB CRÈDIT visible a l'autor. Recomanat: demanar-li permís per escrit abans de publicar.
+- Fitxers: `PixelMonasteryScript.woff` (conversió TTF→WOFF sense canviar-ne el disseny), `src/assets/title/el-poble-title.png` / `el-poble-ghost.png` (títol «El Poble») i `src/world/worldText.js` (mapes de bits del cartell i de les làpides, rasteritzats amb la font).
+- Si l'autor no ho permet, s'ha de retirar la font, les imatges i `worldText.js` i triar una altra tipografia.

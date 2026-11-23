@@ -8,7 +8,7 @@
 //   no accessible → trama de ratlles diagonals, contorn discontinu i una creu (X); l'etiqueta diu per què («reixa tancada»)
 // El jugador és una fletxa vermella fosca que apunta cap a on mira (nord amunt).
 // =====================================================================
-import { FONT_TEXT, FONT_TITLE } from './theme.js';   // Fase D.4: tipografia pròpia del joc
+import { FONT_PIXEL, TEXT_MIN } from './theme.js';   // Fase D.6: Pixel Monastery Script és l'única tipografia (mida mínima TEXT_MIN = 24 px)
 
 export const MAP_SCALE = 7; // píxels per metre
 export const INK = '#2b2013';
@@ -69,12 +69,30 @@ function halo(ctx, text, x, y) { // text amb vora clara perquè es llegeixi sobr
   ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(222,208,170,0.92)'; ctx.strokeText(text, x, y); ctx.fillStyle = INK; ctx.fillText(text, x, y);
 }
 
+// Divideix el text en línies (per paraules) de com a màxim `max` lletres: amb 24 px les etiquetes llargues no caben en una sola línia.
+export function wrapLabel(text, max = 12) {
+  const lines = []; let cur = '';
+  for (const w of text.split(' ')) {
+    if (cur && (cur + ' ' + w).length > max) { lines.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// Creu «✕» DIBUIXADA (la font no té aquest caràcter): dos traços amb vora clara perquè es vegi sobre la trama.
+function cross(ctx, x, y, r = 7) {
+  for (const [w, c] of [[5, 'rgba(222,208,170,0.92)'], [2.5, INK]]) {
+    ctx.lineWidth = w; ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke();
+  }
+}
+
 function label(ctx, bounds, z, scale) {
   const r = z.rects[0]; const [cx, cy] = toCanvas(bounds, (r.xMin + r.xMax) / 2, (r.zMin + r.zMax) / 2, scale);
-  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = `italic 13px ${FONT_TEXT}`;
+  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = `${TEXT_MIN}px ${FONT_PIXEL}`;
   const text = z.accessible || !z.lockedNote ? z.name : `${z.name} (${z.lockedNote})`;
-  halo(ctx, text, cx, cy + (z.kind === 'church' ? -2 : 4));
-  if (!z.accessible) { ctx.font = `bold 15px ${FONT_TEXT}`; halo(ctx, '✕', cx, cy + 20); }
+  const lines = wrapLabel(text); const LH = 22; const y0 = cy + (z.kind === 'church' ? -2 : 4) - ((lines.length - 1) * LH) / 2;
+  lines.forEach((ln, i) => halo(ctx, ln, cx, y0 + i * LH));
+  if (!z.accessible) cross(ctx, cx, y0 + (lines.length - 1) * LH + 16);
 }
 
 function compass(ctx, w) {
@@ -82,7 +100,7 @@ function compass(ctx, w) {
   ctx.fillStyle = INK; ctx.strokeStyle = INK; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(cx, cy - 16); ctx.lineTo(cx + 4, cy); ctx.lineTo(cx, cy + 16); ctx.lineTo(cx - 4, cy); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.moveTo(cx - 12, cy); ctx.lineTo(cx, cy - 3); ctx.lineTo(cx + 12, cy); ctx.lineTo(cx, cy + 3); ctx.closePath(); ctx.stroke();
-  ctx.textAlign = 'center'; ctx.font = `bold 13px ${FONT_TEXT}`; ctx.fillText('N', cx, cy - 20);
+  ctx.textAlign = 'center'; ctx.font = `${TEXT_MIN}px ${FONT_PIXEL}`; ctx.fillText('N', cx, cy - 20);
 }
 
 export function drawPlayer(ctx, bounds, p, scale) {
@@ -93,14 +111,14 @@ export function drawPlayer(ctx, bounds, p, scale) {
   ctx.beginPath();
   ctx.moveTo(x + dx * 9, y + dz * 9); ctx.lineTo(x - dx * 6 + px * 5.5, y - dz * 6 + pz * 5.5); ctx.lineTo(x - dx * 3, y - dz * 3); ctx.lineTo(x - dx * 6 - px * 5.5, y - dz * 6 - pz * 5.5);
   ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = `bold 13px ${FONT_TEXT}`; ctx.fillText('Tu', x, y - 13);
+  ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = `${TEXT_MIN}px ${FONT_PIXEL}`; halo(ctx, 'Tu', x, y - 14);
 }
 
 // Dibuixa el mapa sencer. Retorna el nombre de zones dibuixades (per als tests).
 export function drawMap(ctx, model, opts = {}) {
   const scale = opts.scale || MAP_SCALE; const { w, h } = mapSize(model.bounds, scale);
   parchment(ctx, w, h);
-  ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.font = `22px ${FONT_TITLE}`; ctx.fillText('EL POBLE', 20, 34);
+  ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.font = `30px ${FONT_PIXEL}`; ctx.fillText('El Poble', 20, 38);
   compass(ctx, w);
   const order = ['road', 'plaza', 'forest', 'cemetery', 'house', 'church', 'crypt'];
   const zones = [...model.zones].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));

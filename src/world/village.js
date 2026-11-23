@@ -73,6 +73,7 @@ import { houseDoorGeometry } from '../player/houseDoors.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { LAYOUT_META, PLAZA, BUILDINGS, WALLS, PROPS, DOORS, LIGHTS, FURNITURE, SECRET_DOOR, KEYS, CANDLES, COBWEBS, INTERIOR_LIGHTS, FLOORS, STAIRS, GATE, FOREST, CEM_AREA, CEM_WALLS, CEM_GATE, CEM_REAR_GATE, CEM_PATHS, CEM_PROPS, CRYPT, CRYPT_WALLS, CRYPT_PROPS } from './layout.js';
 import { SYMBOL_CELLS, SYMBOL_ATLAS_SIZE, paintSymbols } from './cryptSymbols.js';
+import { WORLD_TEXT } from './worldText.js';   // Fase D.6: textos del món en Pixel Monastery Script (mapes de bits generats)
 
 const EPS = 1e-9;
 const TILE = { stone: 4, roof: 4, wood: 2, earth: 2, bedding: 2 }; // metres per rajola de textura (≈16 px/m)
@@ -536,63 +537,59 @@ export function paintWeb(px, w, h) {
 // ---------------------------------------------------------------------
 // FASE D.2 — TEXTURES DEL CEMENTIRI (pixel-art per codi): cartell CT2, gravats de les làpides i terra dels camins
 // ---------------------------------------------------------------------
-// Tipografia 5 × 7 píxels (només les lletres que es fan servir: CEMENTIRI, SIBIL·LA, ALDAIRA). Cada glif és una llista de files.
-const FONT = {
-  A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
-  B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
-  C: ['.####', '#....', '#....', '#....', '#....', '#....', '.####'],
-  D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
-  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
-  I: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '#####'],
-  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
-  M: ['#...#', '##.##', '#.#.#', '#...#', '#...#', '#...#', '#...#'],
-  N: ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
-  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
-  S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
-  T: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
-  '·': ['...', '...', '...', '.#.', '...', '...', '...'],
-  ' ': ['...', '...', '...', '...', '...', '...', '...'],
-  '→': ['....#...', '.....#..', '......#.', '########', '......#.', '.....#..', '....#...'],
-};
+// Fase D.6: els textos del món («CEMENTIRI», «SIBIL·LA», «ALDAIRA») ja no fan servir l'alfabet propi de 5 × 7 píxels: són mapes de bits de la
+// Pixel Monastery Script a la seva mida nativa (30 px), generats un cop a worldText.js. La fletxa «→» no existeix a la font: és un dibuix propi.
+const ARROW = ['....#...', '.....#..', '......#.', '########', '......#.', '.....#..', '....#...'];   // dibuix (no és text), es pinta ampliat
+const ARROW_SCALE = 3;                                                                              // mateix gruix de píxel que la fusta del cartell
+const TEXT_GAP = 12;                                                                                // espai entre la paraula i la fletxa (px)
+const wordOf = (str) => str.replace(/ →$/, '');
+const rowsOf = (str) => WORLD_TEXT[wordOf(str)] || fail(`Textos del món: falta el text '${wordOf(str)}'`);
 
-export function fontWidth(str) {
-  let w = 0;
-  [...str].forEach((ch, i) => { if (!FONT[ch]) fail(`Tipografia: falta el glif '${ch}'`); w += FONT[ch][0].length + (i ? 1 : 0); });
-  return w;
+export function fontWidth(str) { // amplada en píxels del text (paraula tipografiada + fletxa dibuixada si n'hi ha)
+  return rowsOf(str)[0].length + (wordOf(str) !== str ? TEXT_GAP + ARROW[0].length * ARROW_SCALE : 0);
 }
+export function fontHeight(str) { return rowsOf(str).length; }
 
-// Dibuixa `str` amb la cantonada superior esquerra a (x0, y0). `chip` = probabilitat de perdre un píxel (pintura/gravat gastats).
-function drawText(px, str, x0, y0, color, rnd, chip = 0) {
-  let x = x0;
-  for (const ch of str) {
-    const g = FONT[ch];
-    for (let r = 0; r < g.length; r++) for (let c = 0; c < g[r].length; c++) if (g[r][c] === '#' && !(chip && rnd() < chip)) px(x + c, y0 + r, color);
-    x += g[0].length + 1;
+// Dibuixa un mapa de bits ('#' = píxel) amb la cantonada superior esquerra a (x0, y0), ampliat `scale` vegades.
+// `chip` = probabilitat de perdre un píxel (pintura/gravat gastats).
+function drawBitmap(px, rows, x0, y0, color, rnd, chip = 0, scale = 1) {
+  for (let r = 0; r < rows.length; r++) for (let c = 0; c < rows[r].length; c++) {
+    if (rows[r][c] !== '#' || (chip && rnd() < chip)) continue;
+    for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) px(x0 + c * scale + dx, y0 + r * scale + dy, color);
   }
-  return x;
+}
+// Dibuixa `str` («PARAULA» o «PARAULA →»).
+function drawText(px, str, x0, y0, color, rnd, chip = 0) {
+  const rows = rowsOf(str);
+  drawBitmap(px, rows, x0, y0, color, rnd, chip);
+  if (wordOf(str) !== str) drawBitmap(px, ARROW, x0 + rows[0].length + TEXT_GAP, y0 + Math.round((rows.length - ARROW.length * ARROW_SCALE) / 2), color, rnd, chip, ARROW_SCALE);
+  return x0 + fontWidth(str);
 }
 
-// Cartell CT2: taulell de fusta 1,3 × 0,45 m → 76 × 26 píxels (≈ 1,7 cm per píxel). Text «CEMENTIRI →» en pintura pàl·lida i gastada.
-export const SIGN_TEX = { w: 76, h: 26, text: 'CEMENTIRI →', textY: 9 };
+// Cartell CT2: taulell de fusta 1,3 × 0,45 m. La fusta es pinta com sempre a 76 × 26 «píxels de fusta» (≈ 1,7 cm) i s'amplia 3× fins a 228 × 78 (SIGN_TEX.scale):
+// el text, en Pixel Monastery Script a la seva mida nativa de 30 px, necessita píxels més fins (≈ 0,57 cm). Text «CEMENTIRI →» en pintura pàl·lida i gastada.
+export const SIGN_TEX = { w: 228, h: 78, scale: 3, text: 'CEMENTIRI →', textY: 28 };
 export function paintCemSign(px, w, h) {
+  const S = SIGN_TEX.scale; const cw = w / S; const ch = h / S;
+  const cp = (x, y, c) => { const xx = Math.floor(x) * S; const yy = Math.floor(y) * S; for (let dy = 0; dy < S; dy++) for (let dx = 0; dx < S; dx++) px(xx + dx, yy + dy, c); };   // «píxel de fusta» gruixut
   const rnd = mulberry32(2602);
   const planks = [0x5e4a35, 0x52402e, 0x664f38];
   const rows = [[0, 8], [9, 17], [18, 25]]; // tres taulons horitzontals; la fila del text és el taulò del mig
   rows.forEach(([y0, y1], k) => {
-    for (let y = y0; y <= y1; y++) for (let x = 0; x < w; x++) {
+    for (let y = y0; y <= y1; y++) for (let x = 0; x < cw; x++) {
       const grain = 0.88 + ((x * 3 + y * 7 + k * 5) % 6) * 0.04 + (rnd() - 0.5) * 0.1;
-      px(x, y, shade(planks[k], grain));
+      cp(x, y, shade(planks[k], grain));
     }
   });
-  for (let k = 1; k < rows.length; k++) for (let x = 0; x < w; x++) px(x, rows[k][0] - 1, 0x1e1610); // juntes fosques entre taulons
-  for (let x = 0; x < w; x++) { px(x, 0, 0x2a2018); px(x, h - 1, 0x2a2018); }                                 // marc
-  for (let y = 0; y < h; y++) { px(0, y, 0x2a2018); px(w - 1, y, 0x2a2018); }
-  for (const [x, y] of [[2, 2], [w - 3, 2], [2, h - 3], [w - 3, h - 3]]) { px(x, y, 0x8a7e6a); px(x + 1, y, 0x3a2e22); } // claus
-  for (let i = 0; i < 26; i++) px(2 + rnd() * (w - 4), 2 + rnd() * (h - 4), rnd() < 0.5 ? 0x2a2018 : 0x7a6a50);   // nusos i desgast
+  for (let k = 1; k < rows.length; k++) for (let x = 0; x < cw; x++) cp(x, rows[k][0] - 1, 0x1e1610); // juntes fosques entre taulons
+  for (let x = 0; x < cw; x++) { cp(x, 0, 0x2a2018); cp(x, ch - 1, 0x2a2018); }                                 // marc
+  for (let y = 0; y < ch; y++) { cp(0, y, 0x2a2018); cp(cw - 1, y, 0x2a2018); }
+  for (const [x, y] of [[2, 2], [cw - 3, 2], [2, ch - 3], [cw - 3, ch - 3]]) { cp(x, y, 0x8a7e6a); cp(x + 1, y, 0x3a2e22); } // claus
+  for (let i = 0; i < 26; i++) cp(2 + rnd() * (cw - 4), 2 + rnd() * (ch - 4), rnd() < 0.5 ? 0x2a2018 : 0x7a6a50);   // nusos i desgast
   const tw = fontWidth(SIGN_TEX.text);
   const x0 = Math.floor((w - tw) / 2);
-  drawText(px, SIGN_TEX.text, x0 + 1, SIGN_TEX.textY + 1, 0x1a130d, rnd);           // ombra
-  drawText(px, SIGN_TEX.text, x0, SIGN_TEX.textY, 0xd8ceb2, rnd, 0.09);             // lletres pàl·lides, amb alguna escrostada
+  drawText(px, SIGN_TEX.text, x0 + 2, SIGN_TEX.textY + 2, 0x1a130d, rnd);           // ombra
+  drawText(px, SIGN_TEX.text, x0, SIGN_TEX.textY, 0xd8ceb2, rnd, 0.05);             // lletres pàl·lides, amb alguna escrostada
 }
 
 // Terra batuda dels camins i de les tombes (32 × 32 px = 2 m): to marró grisenc amb còdols i alguna rodera.
@@ -621,10 +618,10 @@ const ENGRAVE_ITEMS = [
   ['sibila', 'SIBIL·LA'], ['aldaira', 'ALDAIRA'],
 ];
 const ENGRAVE_ATLAS = (() => {
-  const cells = {}; const W = 64; let x = 0; let y = 0; let rowH = 0;
+  const cells = {}; const W = 128; let x = 0; let y = 0; let rowH = 0;
   for (const [name, def] of ENGRAVE_ITEMS) {
     const w = typeof def === 'string' ? fontWidth(def) : def[0].length;
-    const h = typeof def === 'string' ? 7 : def.length;
+    const h = typeof def === 'string' ? fontHeight(def) : def.length;
     if (x + w > W) { x = 0; y += rowH + 1; rowH = 0; }
     cells[name] = [x, y, w, h];
     x += w + 1; rowH = Math.max(rowH, h);
@@ -636,7 +633,7 @@ export const ENGRAVE_SIZE = ENGRAVE_ATLAS.size;
 export function paintEngrave(px) {
   for (const [name, def] of ENGRAVE_ITEMS) {
     const [cx, cy] = ENGRAVE_CELLS[name];
-    if (typeof def === 'string') { drawText(px, def, cx, cy, 0x1c1d22, null); continue; }
+    if (typeof def === 'string') { drawText(px, def, cx, cy, 0x1c1d22, null); continue; }   // (Fase D.6: Pixel Monastery Script)
     const ink = name === 'scar' ? 0x2c2d31 : 0x1c1d22;
     def.forEach((row, r) => [...row].forEach((ch, c) => {
       if (ch === '#') px(cx + c, cy + r, name === 'hole' ? 0x07070a : ink);
@@ -3785,8 +3782,9 @@ function cemSib(b, item) {
   const slab = { x: fp.xMin + 0.1, z: zc, facing: 'west', w: 0.8, h: 1.05, d: 0.14, shape: 'arch', lean: -0.04 };
   cemSlab(b, slab);
   cemEngrave(b, 'cross', { ...slab, w: 0.14, h: 0.18, y: 0.86 });
-  cemEngrave(b, 'sibila', { ...slab, w: 0.66, h: 0.102, y: 0.66 });
-  cemEngrave(b, 'aldaira', { ...slab, w: 0.6, h: 0.102, y: 0.5 });
+  const NAME_PX = 0.0056; // m per píxel de la tipografia dels noms (≈ 0,12 m d'alçada de lletra; abans 0,10)
+  cemEngrave(b, 'sibila', { ...slab, w: ENGRAVE_CELLS.sibila[2] * NAME_PX, h: ENGRAVE_CELLS.sibila[3] * NAME_PX, y: 0.66 });
+  cemEngrave(b, 'aldaira', { ...slab, w: ENGRAVE_CELLS.aldaira[2] * NAME_PX, h: ENGRAVE_CELLS.aldaira[3] * NAME_PX, y: 0.5 });
   b.add('moss', new THREE.PlaneGeometry(0.5, 0.25), fp.xMin + 0.02, 0.14, zc + 0.1, { tint: jit(0xffffff, 0.1, r), rotY: -Math.PI / 2 });
   // creu de l'extrem est: base, tija trencada a mitja alçada i el braç a sobre del túmul
   const cx = fp.xMax - 0.28; const t = jit(CEM_STONE[2], 0.06, r);

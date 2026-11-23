@@ -15,7 +15,7 @@ export function documentDefs(crypt) {
       id: DOCUMENT_IDS.symbolNote,
       title: 'Nota de la caixa',
       source: 'Trobada a la casa de dues plantes, pis superior',
-      text: clue ? `«${clue.text.replace(/^«|»$/g, '')}»` : '',
+      text: clue ? `"${clue.text.replace(/^[\u00ab"]|[\u00bb"]$/g, '')}"` : '',
       symbols: clue ? clue.order.slice() : [],           // els tres símbols de la nota, en l'ordre en què hi apareixen
     },
   ];
