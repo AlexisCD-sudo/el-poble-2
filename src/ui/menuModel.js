@@ -15,6 +15,9 @@ export function inventoryEntries(defs, ownedIds) {
     { id: defs.CRYPT.keyC.id, slot: 'C', name: defs.CRYPT.keyC.name, symbol: defs.CRYPT.keyC.symbol, material: defs.CRYPT.keyC.material, description: defs.CRYPT.keyC.description },
   ];
   slots.forEach((s, i) => { s.slot = ['A', 'B', 'C'][i]; });
+  // Fase E: la clau del mausoleu (KEY-BELLS) només apareix quan l'has agafada (no es revela abans que existeixi un quart espai).
+  const mk = defs.MAUSOLEUM && defs.MAUSOLEUM.key;
+  if (mk && owned.has(mk.id)) slots.push({ id: mk.id, slot: 'D', name: mk.name, symbol: mk.symbol, material: mk.material, description: mk.description });
   return slots.map((s) => (owned.has(s.id)
     ? { ...s, collected: true }
     : { id: s.id, slot: s.slot, collected: false, name: UNKNOWN_KEY.name, description: UNKNOWN_KEY.description, symbol: null, material: null }));

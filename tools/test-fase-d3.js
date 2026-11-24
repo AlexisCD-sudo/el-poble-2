@@ -278,7 +278,7 @@ test('Cada E gira UN SOL disc (el que es mira): esquerra / mig / dreta, i cicla 
   pressDisc(g, 0); pressDisc(g, 0); pressDisc(g, 0); expect(g.crypt.puzzle.symbols().join() === 'sun,sun,bell', 'cicle de 4 (campana → lluna → creu → sol)'); expect(CRYPT.puzzle.symbols.join() === 'bell,moon,cross,sun', 'ordre del cicle');
   advance(g, 2); expect(Math.abs(g.crypt.puzzle.discAngle(0) - 4 * Math.PI / 2) < 1e-6, 'animació acaba a 4 × 90°');
 });
-test('Indicació en pantalla: "E — girar el disc …" només davant de l\'altar; hint discret quan no hi ha objectiu', () => {
+test('Indicació en pantalla: "E - girar el disc …" només davant de l\'altar; hint discret quan no hi ha objectiu', () => {
   const g = newGame(); g.update(DT, 0, -34.0, 0, -1, EV); expect(/girar el disc/.test(g.prompt), `prompt "${g.prompt}"`);
   expect(g.hint(0, -33.0) !== '' || true, ''); const g2 = newGame(); g2.update(DT, 0, -33.2, 1, 0, EV); expect(g2.prompt === '' && /Altar dels tres discs/.test(g2.hint(0, -33.2)), `hint "${g2.hint(0, -33.2)}"`);
   const g3 = newGame(); g3.update(DT, 0, -31, 0, -1, EV); expect(g3.hint(0, -31) === '', 'sense hint lluny');
@@ -402,8 +402,8 @@ test('Símbols pixel-art: atles d\'una fila (campana, lluna, creu, sol), cel·le
   const box = village.root.getObjectByName('ClueBox'); expect(box && box.children.length >= 3, 'ClueBox'); let sym = 0; box.traverse((o) => { if (o.isMesh && o.name.endsWith('-symbol')) sym++; }); expect(sym === 1, 'una malla de símbols'); 
   let tris = 0; box.traverse((o) => { if (o.isMesh && o.name.endsWith('-symbol')) tris = o.geometry.getAttribute('position').count / 3; }); expect(tris === 6, `${tris} triangles de símbols (3 quads)`);
 });
-test('dispose() allibera la cripta (geometries) i la treu de l\'escena', () => {
-  const sc = new THREE.Scene(); const v = buildVillage(sc); const n0 = sc.children.length; expect(n0 === 2, `fills ${n0}`); v.dispose(); expect(sc.children.length === 0, 'escena buida');
+test('dispose() allibera la cripta i el mecanisme del mausoleu (Fase E: 3 fills: poble, cripta, mausoleu) i la treu de l\'escena', () => {
+  const sc = new THREE.Scene(); const v = buildVillage(sc); const n0 = sc.children.length; expect(n0 === 3, `fills ${n0}`); v.dispose(); expect(sc.children.length === 0, 'escena buida');
 });
 
 console.log(`\nResum: ${passed} proves superades, ${failed} fallades.`);

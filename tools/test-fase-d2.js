@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import * as LAYOUT from '../src/world/layout.js';
 import { buildColliders, movePlayer, createMoveResult, isPositionFree, clearance } from '../src/player/collisions.js';
-import { buildVillage, fontWidth, SIGN_TEX, paintCemSign, ENGRAVE_CELLS, ENGRAVE_SIZE, paintEngrave } from '../src/world/village.js';
+import { buildVillage, fontWidth, fontHeight, SIGN_TEX, paintCemSign, ENGRAVE_CELLS, ENGRAVE_SIZE, paintEngrave } from '../src/world/village.js';
 
 const { CEM_AREA, CEM_WALLS, CEM_PROPS, CEM_PATHS, CEM_GATE, CEM_REAR_GATE, PLAYER, WALLS, KEYS } = LAYOUT;
 let passed = 0; let failed = 0;
@@ -306,20 +306,20 @@ test('El cartell conté el text «CEMENTIRI →»: cabe amb marge a les dues ban
   expect(light.length > 90, `només ${light.length} píxels de lletra`);
   const xs = light.map((q) => q[0]); const ys = light.map((q) => q[1]);
   const left = Math.min(...xs); const right = SIGN_TEX.w - 1 - Math.max(...xs); expect(left >= 3 && right >= 3 && Math.abs(left - right) <= 3, `marges ${left}/${right}`);
-  expect(Math.min(...ys) >= SIGN_TEX.textY - 0 && Math.max(...ys) <= SIGN_TEX.textY + 6, `lletres entre y ${Math.min(...ys)} i ${Math.max(...ys)}`);
+  expect(Math.min(...ys) >= SIGN_TEX.textY - 0 && Math.max(...ys) <= SIGN_TEX.textY + fontHeight(SIGN_TEX.text) - 1, `lletres (D.6: Pixel Monastery Script, 21 files) entre y ${Math.min(...ys)} i ${Math.max(...ys)}`);
   const L = (hex) => (((hex >> 16) & 255) * 0.3 + ((hex >> 8) & 255) * 0.59 + (hex & 255) * 0.11);
   const wood = px.filter((p) => p && p.hex !== 0xd8ceb2); const mean = wood.reduce((s, p) => s + L(p.hex), 0) / wood.length; expect(mean < 90, `fusta massa clara (${mean.toFixed(0)})`);
   expect(L(0xd8ceb2) > mean * 2, 'poc contrast text/fusta');
 });
-test('La fletxa apunta a l\'est: el seu cap (columnes de la dreta) és més alt i el pal és horitzontal al mig; tots els píxels pintats són dins de la imatge', () => {
+test('La fletxa apunta a l\'est (D.6: dibuix propi ampliat 3×): el seu cap (columnes de la dreta) és més alt i el pal és horitzontal al mig; tots els píxels pintats són dins de la imatge', () => {
   const px = raster(SIGN_TEX.w, SIGN_TEX.h, paintCemSign);
   const lightAt = (x, y) => px[y * SIGN_TEX.w + x] && px[y * SIGN_TEX.w + x].hex === 0xd8ceb2;
-  const tw = fontWidth(SIGN_TEX.text); const x0 = Math.floor((SIGN_TEX.w - tw) / 2); const ax1 = x0 + tw - 1; const y = SIGN_TEX.textY;
-  // fila central de la fletxa (y + 3) amb el pal complet; el cap sobre i sota només a la dreta
-  let row = 0; for (let x = ax1 - 7; x <= ax1; x++) if (lightAt(x, y + 3)) row++;
-  expect(row >= 6, `pal de la fletxa: ${row} píxels`);
-  expect((lightAt(ax1 - 3, y) || lightAt(ax1 - 3, y + 6) || lightAt(ax1 - 4, y) || lightAt(ax1 - 4, y + 6)), 'sense cap de fletxa a la dreta');
-  expect(!lightAt(ax1 - 7, y) && !lightAt(ax1 - 7, y + 6), 'el cap de la fletxa és a l\'esquerra (apuntaria a l\'oest)');
+  const tw = fontWidth(SIGN_TEX.text); const x0 = Math.floor((SIGN_TEX.w - tw) / 2); const ax1 = x0 + tw - 1; const y = SIGN_TEX.textY; const ax0 = ax1 - 23;
+  let row = 0; for (let x = ax0; x <= ax1; x++) if (lightAt(x, y + 10)) row++;            // fila central (pal complet: 8 columnes × 3 px)
+  expect(row >= 12, `pal de la fletxa: ${row} píxels`);
+  let head = 0; for (let x = ax0 + 12; x <= ax0 + 14; x++) for (let k = 0; k < 3; k++) if (lightAt(x, y + k) || lightAt(x, y + 18 + k)) head++;   // el cap, a dalt i a baix de la dreta
+  expect(head >= 6, `cap de fletxa: ${head} píxels`);
+  expect(!lightAt(ax0 + 1, y + 1) && !lightAt(ax0 + 1, y + 19), 'el cap de la fletxa és a l\'esquerra (apuntaria a l\'oest)');
 });
 test('Atles de gravats: totes les cel·les caben dins l\'atles, no se solapen, i hi ha pixels a cada cel·la (campana, lluna, creu, forat, ferides, SIBIL·LA, ALDAIRA)', () => {
   const px = raster(ENGRAVE_SIZE[0], ENGRAVE_SIZE[1], paintEngrave);

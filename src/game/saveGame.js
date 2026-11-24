@@ -17,6 +17,7 @@
 // =====================================================================
 
 import { isPositionFree } from '../player/collisions.js';
+import { validCells, reachableFrom, isSolution } from '../player/slabPuzzle.js';   // Fase E: tauler de les lloses
 
 export const SAVE_KEY = 'the-forgotten-village:save';
 export const SAVE_VERSION = 1;
@@ -75,7 +76,7 @@ export function validateSave(data, defs) {
 
   const st = data.state;
   if (!isObj(st)) { bad('falta state'); return { ok: false, errors }; }
-  const keyIds = [...defs.KEYS.map((k) => k.id), defs.CRYPT.keyC.id];
+  const keyIds = [...defs.KEYS.map((k) => k.id), defs.CRYPT.keyC.id, ...(defs.MAUSOLEUM ? [defs.MAUSOLEUM.key.id] : [])];   // Fase E: KEY-BELLS
   const A = defs.KEYS[0]; const B = defs.KEYS[1];
 
   // inventari i claus agafades
@@ -125,6 +126,15 @@ export function validateSave(data, defs) {
   const gateSnap = st.cemeteryGate;
   if (gateSnap !== undefined && (!isObj(gateSnap) || typeof gateSnap.open !== 'boolean')) bad('reixa del cementiri invàlida');
 
+  // mausoleu (Fase E): camp opcional (partides antigues = porta tancada, tauler inicial, sense clau). Només s'accepta un estat que es pugui assolir jugant.
+  const mau = st.mausoleum; let mauOk = true;
+  if (mau !== undefined && defs.MAUSOLEUM) {
+    const pz = isObj(mau) ? mau.puzzle : null;
+    if (!isObj(mau) || typeof mau.doorOpen !== 'boolean' || typeof mau.secretOpen !== 'boolean' || typeof mau.keyTaken !== 'boolean' || !isObj(pz)
+      || !validCells(pz.cells) || !Number.isInteger(pz.moves) || pz.moves < 0 || pz.moves > 100000) { bad('mausoleu invàlid'); mauOk = false; }
+    else if (!reachableFrom(defs.SLAB_PUZZLE.start, pz.cells)) { bad('tauler de lloses impossible (no s\'hi arriba des de l\'inicial)'); mauOk = false; }
+  }
+
   // coherència entre peces (només si l'estructura bàsica és correcta)
   if (errors.length === 0) {
     const inv = new Set(st.inventory); const taken = new Set(st.taken);
@@ -140,6 +150,17 @@ export function validateSave(data, defs) {
     const gateOpen = !!(gateSnap && gateSnap.open);
     if (gateOpen && !inv.has(defs.CRYPT.keyC.id)) errors.push('reixa del cementiri oberta sense KEY-C a l\'inventari');
     if (!gateOpen && pl && defs.CEM_AREA && [defs.CEM_AREA.clos, defs.CEM_AREA.vestibule].some((r) => pl.x >= r.xMin && pl.x <= r.xMax && pl.z >= r.zMin && pl.z <= r.zMax)) errors.push('jugador dins el cementiri amb la reixa tancada');
+    if (mau !== undefined && defs.MAUSOLEUM && mauOk) {
+      const solved = isSolution(mau.puzzle.cells, defs.SLAB_PUZZLE);
+      const slabsTouched = mau.puzzle.moves > 0 || mau.puzzle.cells.join() !== defs.SLAB_PUZZLE.start.join();
+      if (mau.doorOpen && !inv.has(defs.CRYPT.keyC.id)) errors.push('mausoleu obert sense KEY-C a l\'inventari');
+      if (!mau.doorOpen && (slabsTouched || mau.secretOpen || mau.keyTaken)) errors.push('progrés al mausoleu amb la porta tancada');
+      if (solved !== mau.secretOpen) errors.push('porta secreta incoherent amb el tauler de lloses');
+      if (mau.keyTaken && !mau.secretOpen) errors.push('clau del mausoleu agafada amb la cambra tancada');
+      if (inv.has(defs.MAUSOLEUM.key.id) !== mau.keyTaken) errors.push('clau del mausoleu: inventari i pedestal no coincideixen');
+      const I = defs.MAUSOLEUM.interior;
+      if (!mau.doorOpen && pl && pl.x > I.xMin && pl.x < I.xMax && pl.z > I.zMin && pl.z < I.zMax) errors.push('jugador dins el mausoleu amb la porta tancada');
+    } else if (mau === undefined && defs.MAUSOLEUM && inv.has(defs.MAUSOLEUM.key.id)) errors.push('clau del mausoleu sense estat del mausoleu');
     const crypticProgress = cr.solved || cr.keyTaken || cr.sarc !== 'locked' || cr.discTurns.some((t) => t > 0);
     if (crypticProgress && sd.state !== 'open') errors.push('progrés a la cripta amb la porta secreta tancada');
     if (pl && pl.level === -1 && sd.state !== 'open') errors.push('jugador a la cripta amb la porta secreta tancada');

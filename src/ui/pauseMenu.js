@@ -79,7 +79,10 @@ export function keyIcon(entry, size = 5) {
   ctx.fillRect(9, 5, 14, 2); ctx.fillRect(19, 7, 2, 3); ctx.fillRect(22, 7, 1, 2);  // canya i dents
   ctx.fillRect(1, 2, 8, 8); ctx.clearRect(2, 3, 6, 6); ctx.fillRect(1, 2, 8, 1); ctx.fillRect(1, 9, 8, 1);   // anella
   ctx.clearRect(2, 3, 6, 6);
-  if (entry.collected && entry.symbol && SYMBOL_BITMAPS[entry.symbol]) { // símbol dins l'anella (ocupa 6×6 aprox.)
+  if (entry.collected && entry.symbol === 'bells3') {   // Fase E: tres campanes diminutes dins l'anella (el mostreig 1 de cada 2 del mapa de bits no les dibuixaria bé)
+    ctx.fillStyle = '#e3d6b2';
+    for (let k = 0; k < 3; k++) { const x = 2 + k * 2; ctx.fillRect(x, 4, 1, 1); ctx.fillRect(x, 5, 2, 2); ctx.fillRect(x, 7, 1, 1); }
+  } else if (entry.collected && entry.symbol && SYMBOL_BITMAPS[entry.symbol]) { // símbol dins l'anella (ocupa 6×6 aprox.)
     const b = SYMBOL_BITMAPS[entry.symbol]; ctx.fillStyle = '#e3d6b2';
     const ox = 5 - Math.floor(b[0].length / 4); const oy = 6 - Math.floor(b.length / 4);
     b.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '#' && x % 2 === 0 && y % 2 === 0) ctx.fillRect(ox + x / 2, oy + y / 2, 1, 1); }));

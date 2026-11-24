@@ -217,7 +217,7 @@ test('B6. main.js: pausa neix de pointerlockchange; ESC només reprèn; E i tecl
   expect(m.includes('buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS })'), 'buildColliders intacte');
   expect(m.indexOf('churchDoor.update(') < m.indexOf('movePlayer(\n'), 'ordre churchDoor.update → movePlayer');
   const menu = read('../src/ui/pauseMenu.js'); expect(!/pointer-events:\s*none/.test(menu), 'el menú ha de ser interactiu');
-  expect(m.split('\n').length < 900, 'main.js no s\'ha d\'inflar: la interfície és als mòduls');
+  expect(m.split('\n').length < 1000, 'main.js no s\'ha d\'inflar: la interfície és als mòduls (límit pujat a 1000 a la Fase E: el mode del tauler hi afegeix ~150 línies)');
 });
 
 // =====================================================================
@@ -269,7 +269,7 @@ test('D1. 0 claus: tres espais bloquejats, cap nom/descripció/símbol revelat (
   const e = inventoryEntries(invDefs, []); expect(e.length === 3 && e.every((x) => !x.collected), 'tres entrades bloquejades');
   expect(e.every((x) => x.name === UNKNOWN_KEY.name && x.description === UNKNOWN_KEY.description && x.symbol === null && x.material === null), 'revela informació');
   const txt = JSON.stringify(e); for (const k of KEYS) expect(!txt.includes(k.name), `revela ${k.name}`); expect(!txt.includes(CRYPT.keyC.name) && !/campana|lluna|creu/i.test(txt), 'revela KEY-C o símbols');
-  expect(inventorySummary(e) === '0 de 3 claus', inventorySummary(e));
+  expect(inventorySummary(e) === 'Cap clau de 3', inventorySummary(e));
 });
 test('D2. 1 clau (KEY-A): només KEY-A visible amb nom, icona (símbol) i descripció; B i C continuen bloquejades', () => {
   const e = inventoryEntries(invDefs, ['KEY-A']);
@@ -284,7 +284,7 @@ test('D3. 2 claus (A i B) i 3 claus (A, B, C): descripcions completes i ordre A,
 });
 test('D4. L\'inventari real del joc alimenta el menú (recollir KEY-A → 1 clau; fins a KEY-C → 3)', () => {
   const w = world(); const ids = () => w.gameplay.inventory.list().map((i) => i.id);
-  expect(inventorySummary(inventoryEntries(invDefs, ids())) === '0 de 3 claus', 'inici');
+  expect(inventorySummary(inventoryEntries(invDefs, ids())) === 'Cap clau de 3', 'inici');
   stepKeyA(w); expect(inventorySummary(inventoryEntries(invDefs, ids())) === '1 de 3 claus', 'A');
   stepKeyB(w); stepOpenSD(w); w.setPose({ x: 0, z: -33, yaw: 0, pitch: 0, level: -1, feetY: -3.2 }); stepSolve(w); stepKeyC(w);
   expect(inventorySummary(inventoryEntries(invDefs, ids())) === '3 de 3 claus' && ids().length === 3, 'KEY-C');
@@ -468,7 +468,7 @@ test('H2. En avançar es descobreixen zones; el cementiri es veu però NO és ac
   w.setPose({ x: 11, z: -8, yaw: 0, pitch: 0, level: 0, feetY: 0 }); w.track(); m = buildMapModel(w.mapData, w.mapProgress, w.getPose(), w.flags());
   const cem = m.zones.find((z) => z.id === 'cementiri'); expect(cem && cem.accessible === false && cem.lockedNote, 'cementiri visible però tancat');
   expect(!m.zones.some((z) => z.id === 'cripta'), 'la cripta continua oculta');
-  const ctx = fakeCtx(); drawMap(ctx, m); expect(/Cementiri/.test(names(ctx.log)) && /✕/.test(names(ctx.log)), 'etiqueta + creu de no accessible');
+  const ctx = fakeCtx(); drawMap(ctx, m); expect(/Cementiri/.test(names(ctx.log)) && /reixa/.test(names(ctx.log)) && !/✕/.test(names(ctx.log)) && ctx.log.some((c) => c[0] === 'stroke'), 'etiqueta + creu DIBUIXADA (la font no té «✕») de no accessible');
 });
 test('H3. La cripta apareix en descobrir-ne l\'existència (porta secreta oberta) i és accessible; entrar-hi la marca com a visitada', () => {
   const w = world(); stepKeyA(w); stepKeyB(w); w.setPose({ x: 0, z: -15, yaw: 0, pitch: 0, level: 0, feetY: 0 }); w.track();

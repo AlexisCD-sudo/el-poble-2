@@ -39,6 +39,11 @@ export function createCryptSounds() {
     mechanism(t) { filtered(2.2, t, 'lowpass', 220, 90, 0.7, 0.3); tone(38, t, 2.2, 0.5, 'sine', 30); },              // retrunyiment greu
     lid(t) { filtered(2.6, t, 'bandpass', 500, 260, 0.45, 0.2); tone(48, t, 2.6, 0.25, 'sine', 40); },                // arrossegament de pedra
     key(t) { tone(1760, t, 0.5, 0.18, 'sine'); tone(2637, t + 0.02, 0.35, 0.1, 'sine'); filtered(0.08, t, 'highpass', 3000, 3000, 0.2, 0.002); },
+    // --- Fase E: mausoleu ---
+    slab(t) { filtered(0.26, t, 'lowpass', 750, 150, 0.55, 0.01); tone(88, t, 0.28, 0.3, 'triangle', 58); },        // llosa de pedra que llisca
+    door(t) { filtered(3.2, t, 'bandpass', 430, 170, 0.45, 0.4); tone(72, t, 3.2, 0.12, 'sawtooth', 52); },           // roure vell que grinyola
+    glow(t) { [330, 392, 440, 523, 587, 659, 784].forEach((f, i) => tone(f, t + i * 0.45, 1.0, 0.11, 'sine')); },     // un to per llosa que s'il·lumina (0,45 s cadascun)
+    stone(t) { filtered(5, t, 'lowpass', 270, 70, 0.85, 0.5); tone(34, t, 5, 0.5, 'sine', 27); filtered(1.4, t + 0.1, 'bandpass', 600, 220, 0.3, 0.05); },   // llosa enorme que s'enfonsa
     note(t) { filtered(0.25, t, 'bandpass', 3000, 1800, 0.2, 0.02); },                                               // paper
   };
   return {

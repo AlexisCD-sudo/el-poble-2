@@ -99,11 +99,12 @@ export function createSecretDoor(def) {
 // opts: { KEYS, SECRET_DOOR, churchDoor (de doors.js), houseDoors (de houseDoors.js, Fase C: D2, D3, D4; opcional),
 //         occluders (col·lisions massisses per a la línia de visió de les portes de casa; opcional), playerRadius (0,35),
 //         crypt (Fase D.3, opcional): { def: CRYPT, occluders: parets de la cripta } → afegeix la caixa-pista, l'altar dels discs, el sarcòfag i KEY-C,
+//         mausoleum (Fase E, opcional): { mau (de mausoleum.js) } → porta del mausoleu, mecanisme de lloses i clau KEY-BELLS
 //         cemeteryGate (Fase D.4, opcional): { gate (de cemeteryGate.js), def: CEM_GATE, mech: CEM_GATE_MECH } → la reixa del cementiri, que s'obre amb KEY-C }
 // `view` (opcional a update/pressE) = { level, feetY }: pis i alçada dels peus del jugador (Fase C.1).
 export function createGameplay(opts) {
   const { KEYS, SECRET_DOOR, churchDoor, houseDoors = [], playerRadius = 0.35 } = opts;
-  const occluders = [...(opts.occluders || []), ...(opts.crypt ? opts.crypt.occluders || [] : [])];
+  const occluders = [...(opts.occluders || []), ...(opts.crypt ? opts.crypt.occluders || [] : []), ...(opts.mausoleum ? opts.mausoleum.occluders || [] : [])];   // Fase E: parets del mausoleu (la porta i la llosa secreta tanquen la vista només mentre són tancades)
   const coneCos = Math.cos((DOOR_INTERACTION.coneDeg / 2) * Math.PI / 180);
   let view = { level: 0, feetY: 0, occluders };
   const setView = (v) => { if (v) view = { level: v.level, feetY: v.feetY, occluders }; };
@@ -222,24 +223,59 @@ export function createGameplay(opts) {
     });
   }
 
+  // 7. Mausoleu (Fase E): porta de roure (KEY-C), mecanisme de lloses de la paret oest i clau de bronze del pedestal. La clau KEY-BELLS té id propi i
+  //    no interfereix amb KEY-A/B/C. Les tres interaccions són espacials (distància, mirada i cap paret pel mig) i al nivell 0.
+  const mu = opts.mausoleum || null;
+  if (mu) {
+    const D = mu.mau.def; const spatial = (it) => ({ maxDistance: it.interact.maxDistance, coneCos: Math.cos((it.interact.coneDeg / 2) * Math.PI / 180), level: 0, baseY: 0, maxDy: DOOR_INTERACTION.maxDy });
+    targets.push({
+      id: D.door.id, x: D.door.interactionPoint.x, z: D.door.interactionPoint.z, range: D.door.interact.maxDistance, priority: 0, spatial: spatial(D.door),
+      enabled: () => mu.mau.doorState === 'closed',
+      prompt: () => (inventory.has(D.door.keyId) ? 'E - obrir el mausoleu amb la clau' : 'E - examinar la porta'),
+      use: () => {
+        if (!inventory.has(D.door.keyId)) { say('La porta de roure està barrada amb una cinta de ferro i un travesser. Al pany hi ha una creu gravada: caldria la clau del cementiri.', 6); return { action: 'locked' }; }
+        if (mu.mau.openDoor()) say('La clau de la creu gira al pany amagat sota la cinta de ferro. El travesser cedeix i la porta s\'obre, lenta, cap enfora.', 7);
+        return { action: 'open' };
+      },
+    });
+    targets.push({
+      id: D.board.id, x: D.board.interactionPoint.x, z: D.board.interactionPoint.z, range: D.board.interact.maxDistance, priority: 0, spatial: spatial(D.board),
+      enabled: () => mu.mau.puzzleAvailable(),
+      prompt: () => 'E - examinar el mecanisme de lloses',
+      use: () => { mu.mau.requestPuzzle(); return { action: 'puzzle' }; },
+    });
+    targets.push({
+      id: D.pedestal.id, x: D.pedestal.interactionPoint.x, z: D.pedestal.interactionPoint.z, range: D.pedestal.interact.maxDistance, priority: 0, spatial: spatial(D.pedestal),
+      enabled: () => mu.mau.keyAvailable(),
+      prompt: () => 'E - agafar la clau de bronze',
+      use: () => {
+        if (!mu.mau.takeKey()) return { action: 'none' };
+        const K = D.key; inventory.add({ id: K.id, name: K.name, description: K.description, symbol: K.symbol });
+        say('Agafes la clau de bronze del pedestal. Pesa més del que sembla. Tres campanes, gravades a l\'anella.', 7);
+        return { action: 'take' };
+      },
+    });
+  }
+
   // Definició d'un objecte de l'inventari a partir del seu id (per recuperar-lo en carregar una partida; mai se'n dupliquen).
   const itemDef = (id) => {
     const k = keyDef(id);
     if (k) return { id: k.id, name: k.name, description: keyDescription[k.material], symbol: k.symbol };
     if (opts.crypt && id === opts.crypt.def.keyC.id) { const K = opts.crypt.def.keyC; return { id: K.id, name: K.name, description: K.description, symbol: K.symbol }; }
+    if (mu && id === mu.mau.def.key.id) { const K = mu.mau.def.key; return { id: K.id, name: K.name, description: K.description, symbol: K.symbol }; }
     return null;
   };
-  const allKeyIds = () => [...KEYS.map((k) => k.id), ...(opts.crypt ? [opts.crypt.def.keyC.id] : [])];
+  const allKeyIds = () => [...KEYS.map((k) => k.id), ...(opts.crypt ? [opts.crypt.def.keyC.id] : []), ...(mu ? [mu.mau.def.key.id] : [])];
 
   let current = null;
   const api = {
-    inventory, secretDoor, containers, targets, houseDoors: doorsById, crypt, churchDoor, cemeteryGate: cg ? cg.gate : null,
+    inventory, secretDoor, containers, targets, houseDoors: doorsById, crypt, churchDoor, cemeteryGate: cg ? cg.gate : null, mausoleum: mu ? mu.mau : null,
     knownItemIds: allKeyIds,
     // --- Desar / carregar (Fase D.3.1) ---
     // Tot l'estat de la partida que viu aquí. Un estat transitori es normalitza al seu destí; `isSettled()` diu si NO n'hi ha cap en curs.
     isSettled() {
       return !churchDoor.isAnimating() && secretDoor.isSettled() && Object.values(containers).every((c) => c.isSettled())
-        && houseDoors.every((hd) => hd.isSettled()) && (!crypt || crypt.isSettled()) && (!cg || cg.gate.isSettled());
+        && houseDoors.every((hd) => hd.isSettled()) && (!crypt || crypt.isSettled()) && (!cg || cg.gate.isSettled()) && (!mu || mu.mau.isSettled());
     },
     snapshot() {
       const cont = {}; for (const [id, c] of Object.entries(containers)) cont[id] = c.snapshot();
@@ -250,6 +286,7 @@ export function createGameplay(opts) {
         houseDoors: hds, containers: cont, secretDoor: secretDoor.snapshot(),
         crypt: crypt ? crypt.snapshot() : null,
         ...(cg ? { cemeteryGate: cg.gate.snapshot() } : {}),
+        ...(mu ? { mausoleum: mu.mau.snapshot() } : {}),
       };
     },
     // Aplica un estat JA VALIDAT (saveGame.validateSave). No emet esdeveniments ni sons i buida missatges i objectiu.
@@ -262,6 +299,7 @@ export function createGameplay(opts) {
       for (const [id, c] of Object.entries(containers)) c.restore(snap.containers[id] || { opened: false });
       secretDoor.restore(snap.secretDoor);
       if (crypt && snap.crypt) crypt.restore(snap.crypt);
+      if (mu) mu.mau.restore(snap.mausoleum || null);                  // partides anteriors a la Fase E: mausoleu tancat i tauler inicial
       if (cg) cg.gate.restore(snap.cemeteryGate || { open: false });   // partides de la D.3.1 (sense aquest camp): reixa tancada
       msg.text = ''; msg.ttl = 0; current = null;
     },
@@ -280,6 +318,7 @@ export function createGameplay(opts) {
       for (const hd of houseDoors) hd.update(dt);
       if (crypt) crypt.update(dt, px, pz, dirX, dirZ);
       if (cg) cg.gate.update(dt);
+      if (mu) mu.mau.update(dt);
       if (msg.ttl > 0) msg.ttl -= dt;
       current = pickTarget(targets, px, pz, dirX, dirZ, view);
     },

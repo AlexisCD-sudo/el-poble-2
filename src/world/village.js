@@ -74,6 +74,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { LAYOUT_META, PLAZA, BUILDINGS, WALLS, PROPS, DOORS, LIGHTS, FURNITURE, SECRET_DOOR, KEYS, CANDLES, COBWEBS, INTERIOR_LIGHTS, FLOORS, STAIRS, GATE, FOREST, CEM_AREA, CEM_WALLS, CEM_GATE, CEM_REAR_GATE, CEM_PATHS, CEM_PROPS, CRYPT, CRYPT_WALLS, CRYPT_PROPS } from './layout.js';
 import { SYMBOL_CELLS, SYMBOL_ATLAS_SIZE, paintSymbols } from './cryptSymbols.js';
 import { WORLD_TEXT } from './worldText.js';   // Fase D.6: textos del món en Pixel Monastery Script (mapes de bits generats)
+import { MAUSOLEUM, SLAB_PUZZLE } from './mausoleumData.js';   // Fase E: interior del mausoleu, tauler de lloses i cambra
+import { SYMBOL_BITMAPS } from './cryptSymbols.js';
 
 const EPS = 1e-9;
 const TILE = { stone: 4, roof: 4, wood: 2, earth: 2, bedding: 2 }; // metres per rajola de textura (≈16 px/m)
@@ -3798,18 +3800,30 @@ function cemSib(b, item) {
 }
 
 // ---------------------------------------------------------------------
-// MAUSOLEU SEGELLAT (MAU): sòcol, cos de pedra, pilastres, cornisa, teulada a dues aigües amb frontó i creu, arc amb porta de roure
-// barrada (travesser i cinta de ferro), la campana i la lluna gravades. Sense interior ni cap túnel.
+// MAUSOLEU (MAU) — Fase E: ara és BUIT. Parets de 0,4 m amb la porta oberta a la façana (la fulla és un grup mòbil: buildMausoleumMechanism),
+// pilastres, cornisa, teulada a dues aigües amb frontó i creu, la campana i la lluna gravades. Per dins, folres FOSCOS (sala, envà, cambra, terra
+// i sostre) perquè l'interior només es vegi amb la seva llum (com la cripta). Les dades són a world/mausoleumData.js.
 // ---------------------------------------------------------------------
+const MAU_DARK = { wall: 0x5a606a, wallHi: 0x666c78, floor: 0x3a3e46, ceil: 0x2e3239 };
 function cemMausoleum(b, item) {
   const r = b.rnd; const fp = cemFp(item); const { xMin: x0, xMax: x1, zMin: z0, zMax: z1 } = fp;
+  const M = MAUSOLEUM; const I = M.interior; const D = M.door;
   const cx = (x0 + x1) / 2; const cz = (z0 + z1) / 2; const st = () => jit(pickOf(CEM_STONE, r), 0.06, r);
-  b.box('stone', { xMin: x0, xMax: x1, yMin: 0, yMax: 0.4, zMin: z0, zMax: z1 }, jit(CEM_STONE_D[1], 0.05, r));            // sòcol
-  b.box('stone', { xMin: x0, xMax: x1, yMin: 0.4, yMax: 3.3, zMin: z0, zMax: z1 }, st());                                    // cos
-  for (const [a0, a1] of [[x0, x0 + 0.4], [x1 - 0.4, x1]]) {                                                                  // pilastres de la façana
-    b.box('stone', { xMin: a0 - (a0 === x0 ? 0.08 : 0), xMax: a1 + (a1 === x1 ? 0.08 : 0), yMin: 0.4, yMax: 3.3, zMin: z1, zMax: z1 + 0.1 }, st());
+  // parets exteriors: sòcol (0–0,4) + cos (0,4–3,3). La façana (sud) deixa lliure l'obertura de la porta; a sobre hi ha la llinda.
+  const wallSeg = (a0, a1, c0, c1) => {
+    b.box('stone', { xMin: a0, xMax: a1, yMin: 0, yMax: 0.4, zMin: c0, zMax: c1 }, jit(CEM_STONE_D[1], 0.05, r));
+    b.box('stone', { xMin: a0, xMax: a1, yMin: 0.4, yMax: M.height, zMin: c0, zMax: c1 }, st());
+  };
+  wallSeg(x0, I.xMin, z0, z1); wallSeg(I.xMax, x1, z0, z1); wallSeg(I.xMin, I.xMax, z0, I.zMin);                 // oest, est i nord
+  wallSeg(x0, D.x0, D.zMin, D.zMax); wallSeg(D.x1, x1, D.zMin, D.zMax);
+  b.box('stone', { xMin: D.x0, xMax: D.x1, yMin: D.top, yMax: M.height, zMin: D.zMin, zMax: D.zMax }, st());     // llinda sobre la porta
+  for (const [a0, a1] of [[x0, x0 + 0.4], [x1 - 0.4, x1]]) {                                                      // pilastres de la façana
+    b.box('stone', { xMin: a0 - (a0 === x0 ? 0.08 : 0), xMax: a1 + (a1 === x1 ? 0.08 : 0), yMin: 0.4, yMax: M.height, zMin: z1, zMax: z1 + 0.1 }, st());
   }
-  b.box('stone', { xMin: x0 - 0.1, xMax: x1 + 0.1, yMin: 3.3, yMax: 3.46, zMin: z0 - 0.1, zMax: z1 + 0.12 }, jit(CEM_STONE_D[0], 0.05, r)); // cornisa
+  // marc de pedra de la porta (muntants i llinda ressaltats)
+  for (const [a0, a1] of [[D.x0 - 0.14, D.x0], [D.x1, D.x1 + 0.14]]) b.box('stone', { xMin: a0, xMax: a1, yMin: 0, yMax: D.top + 0.14, zMin: z1, zMax: z1 + 0.08 }, jit(CEM_STONE_D[0], 0.05, r));
+  b.box('stone', { xMin: D.x0 - 0.14, xMax: D.x1 + 0.14, yMin: D.top, yMax: D.top + 0.14, zMin: z1, zMax: z1 + 0.08 }, jit(CEM_STONE_D[0], 0.05, r));
+  b.box('stone', { xMin: x0 - 0.1, xMax: x1 + 0.1, yMin: 3.3, yMax: 3.46, zMin: z0 - 0.1, zMax: z1 + 0.12 }, jit(CEM_STONE_D[0], 0.05, r)); // cornisa (també és el sostre)
   // teulada a dues aigües amb el carener cap al sud–nord: el frontó mira al sud
   const span = x1 - x0 + 0.2; const len = z1 - z0 + 0.22; const s = new THREE.Shape();
   s.moveTo(-span / 2, 0); s.lineTo(span / 2, 0); s.lineTo(0, 0.74); s.lineTo(-span / 2, 0);
@@ -3818,15 +3832,6 @@ function cemMausoleum(b, item) {
   b.box('stone', { xMin: cx - 0.05, xMax: cx + 0.05, yMin: 4.2, yMax: 4.6, zMin: z1 + 0.04, zMax: z1 + 0.1 }, st());       // creu de carener: vertical
   b.box('stone', { xMin: cx - 0.17, xMax: cx + 0.17, yMin: 4.4, yMax: 4.5, zMin: z1 + 0.04, zMax: z1 + 0.1 }, st());       // i travesser
   cemEngrave(b, 'cross', { x: cx, z: z1 + 0.12, facing: 'south', w: 0.2, h: 0.26, y: 3.72, d: 0 });         // creu al frontó
-  // arc i porta
-  const ring = archRingGeometry(0.7, 0.95, 1.8, 0.1);
-  b.add('stone', ring, cx, 0.4, z1, { tint: st() });
-  const door = archGeometry(1.4, 1.8, 0.05); scaleUV(door, 1 / 0.3, 1 / 1.2);
-  b.add('doorOak', door, cx, 0.4, z1 + 0.01, {});
-  for (const yy of [0.95, 2.0]) b.box('plainD', { xMin: cx - 0.7, xMax: cx + 0.7, yMin: 0.4 + yy - 0.07, yMax: 0.4 + yy + 0.07, zMin: z1 + 0.06, zMax: z1 + 0.085 }, jit(pickOf(CEM_IRON, r), 0.15, r)); // cintes de ferro
-  for (const yy of [0.95, 2.0]) for (const dx of [-0.55, -0.18, 0.18, 0.55]) b.box('plainD', { xMin: cx + dx - 0.03, xMax: cx + dx + 0.03, yMin: 0.4 + yy - 0.03, yMax: 0.4 + yy + 0.03, zMin: z1 + 0.085, zMax: z1 + 0.105 }, 0x4a4a52); // reblons
-  b.box('wood', { xMin: cx - 1.05, xMax: cx + 1.05, yMin: 1.5, yMax: 1.66, zMin: z1 + 0.09, zMax: z1 + 0.15 }, jit(CEM_WOOD[2], 0.08, r));       // travesser que barra la porta
-  for (const sx of [-1, 1]) b.box('plainD', { xMin: cx + sx * 1.05 - 0.07, xMax: cx + sx * 1.05 + 0.07, yMin: 1.42, yMax: 1.74, zMin: z1 + 0.04, zMax: z1 + 0.15 }, jit(CEM_RUST[0], 0.1, r)); // brides
   b.box('stone', { xMin: cx - 1.0, xMax: cx + 1.0, yMin: 0, yMax: 0.2, zMin: z1, zMax: z1 + 0.14 }, jit(CEM_STONE_D[2], 0.05, r));             // un únic graó
   cemEngrave(b, 'bell', { x: cx - 1.75, z: z1, facing: 'south', w: 0.3, h: 0.34, y: 1.9, d: 0 });
   cemEngrave(b, 'moon', { x: cx + 1.75, z: z1, facing: 'south', w: 0.3, h: 0.34, y: 1.9, d: 0 });
@@ -3837,6 +3842,23 @@ function cemMausoleum(b, item) {
   b.add('ivy', new THREE.PlaneGeometry(1.0, 2.1).rotateY(Math.PI / 2), x1 + 0.03, 1.5, cz + 0.9, { tint: 0x8a7c5c });
   b.add('moss', new THREE.PlaneGeometry(1.4, 0.7), cx - 1.8, 0.45, z1 + 0.03, { tint: jit(0xffffff, 0.1, r) });
   b.add('moss', new THREE.PlaneGeometry(1.2, 0.6), cx + 1.6, 0.4, z1 + 0.03, { tint: jit(0xffffff, 0.1, r) });
+  // ---- interior: folres foscos (2 cm) ----
+  const dk = (hex) => jit(hex, 0.04, r); const L = 0.02;
+  b.box('stone', { xMin: I.xMin, xMax: I.xMax, yMin: 0, yMax: 0.03, zMin: I.zMin, zMax: I.zMax }, dk(MAU_DARK.floor));                       // terra
+  b.box('stone', { xMin: I.xMin, xMax: I.xMax, yMin: M.height - L, yMax: M.height, zMin: I.zMin, zMax: I.zMax }, dk(MAU_DARK.ceil));           // sostre
+  b.box('stone', { xMin: I.xMin, xMax: I.xMin + L, yMin: 0.03, yMax: M.height - L, zMin: I.zMin, zMax: I.zMax }, dk(MAU_DARK.wall));          // paret oest
+  b.box('stone', { xMin: I.xMax - L, xMax: I.xMax, yMin: 0.03, yMax: M.height - L, zMin: I.zMin, zMax: I.zMax }, dk(MAU_DARK.wall));          // paret est
+  b.box('stone', { xMin: I.xMin + L, xMax: I.xMax - L, yMin: 0.03, yMax: M.height - L, zMin: I.zMin, zMax: I.zMin + L }, dk(MAU_DARK.wall)); // paret nord
+  for (const [a0, a1] of [[I.xMin + L, D.x0], [D.x1, I.xMax - L]]) b.box('stone', { xMin: a0, xMax: a1, yMin: 0.03, yMax: M.height - L, zMin: D.zMin, zMax: D.zMin + L }, dk(MAU_DARK.wall)); // façana per dins
+  b.box('stone', { xMin: D.x0, xMax: D.x1, yMin: D.top, yMax: M.height - L, zMin: D.zMin, zMax: D.zMin + L }, dk(MAU_DARK.wall));            // llinda per dins
+  // envà (sala | cambra) amb la porta secreta a l'extrem est; les dues cares fosques
+  b.box('stone', { xMin: I.xMin + L, xMax: M.secret.x0, yMin: 0.03, yMax: M.height - L, zMin: M.partition.zMin, zMax: M.partition.zMax }, dk(MAU_DARK.wallHi));
+  b.box('stone', { xMin: M.secret.x0, xMax: M.secret.x1 - L, yMin: M.secret.top, yMax: M.height - L, zMin: M.partition.zMin, zMax: M.partition.zMax }, dk(MAU_DARK.wallHi)); // llinda de l'envà
+  // pedestal de la cambra
+  const P = M.pedestal; const h = P.size / 2;
+  b.box('stone', { xMin: P.x - h - 0.06, xMax: P.x + h + 0.06, yMin: 0.03, yMax: 0.18, zMin: P.z - h - 0.06, zMax: P.z + h + 0.06 }, dk(0x666c78));
+  b.box('stone', { xMin: P.x - h, xMax: P.x + h, yMin: 0.18, yMax: P.height - 0.08, zMin: P.z - h, zMax: P.z + h }, dk(0x707682));
+  b.box('stone', { xMin: P.x - h - 0.05, xMax: P.x + h + 0.05, yMin: P.height - 0.08, yMax: P.height, zMin: P.z - h - 0.05, zMax: P.z + h + 0.05 }, dk(0x7b818d));
 }
 
 // ---------------------------------------------------------------------
@@ -4361,6 +4383,125 @@ function cemSoilGeometry(rnd) {
 }
 
 // ---------------------------------------------------------------------
+// MAUSOLEU — MECANISME (Fase E). Només GEOMETRIA I CONTROL VISUAL; l'estat el calcula src/player/mausoleum.js i slabPuzzle.js.
+//   · Fulla de la porta (grup mòbil amb pivot a la frontissa): gira cap a dins.
+//   · Tauler incrustat a la paret oest: placa de fons, marc de pedra, 8 lloses mòbils (cada una amb la seva textura de canals i un
+//     recobriment lluminós additiu) i els dos canals d'entrada/sortida. Les lloses es mouen per fila/columna FRACCIONÀRIES (arrossegament).
+//   · Porta secreta: llosa de l'envà que s'enfonsa al terra. Pedestal (a cemMausoleum) i clau de bronze amb tres campanes.
+//   · Una sola llum puntual (com la cripta), que main.js encén només amb el jugador a prop.
+// Textura d'una llosa 32 × 32 (1 px ≈ 1,2 cm): pedra grisa amb vora, els canals de 6 px d'ample que arriben als 4 costats centrats (així encaixen
+// amb els de la llosa veïna) i, si en porta, el símbol gravat al centre.
+// ---------------------------------------------------------------------
+const SLAB_PX = 32; const SLAB_CH = [13, 18];   // columnes/files (incloses) del canal
+function paintSlabFace(px, w, h, tile, seed, glow) {
+  const rnd = mulberry32(seed); const [c0, c1] = SLAB_CH; const open = new Set(tile.channels.split(''));
+  const inChannel = (x, y) => {
+    const inX = x >= c0 && x <= c1; const inY = y >= c0 && y <= c1;
+    return (inX && inY) || (open.has('N') && inX && y < c0) || (open.has('S') && inX && y > c1) || (open.has('W') && inY && x < c0) || (open.has('E') && inY && x > c1);
+  };
+  const bmp = tile.symbol ? SYMBOL_BITMAPS[tile.symbol] : null; const sc = 2;
+  const sw = bmp ? bmp[0].length * sc : 0; const sh = bmp ? bmp.length * sc : 0; const sx0 = Math.floor((w - sw) / 2); const sy0 = Math.floor((h - sh) / 2);
+  const symAt = (x, y) => bmp && x >= sx0 && x < sx0 + sw && y >= sy0 && y < sy0 + sh && bmp[Math.floor((y - sy0) / sc)][Math.floor((x - sx0) / sc)] === '#';
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (glow) {                                                         // recobriment: només el canal (i el símbol), ambre; la resta transparent
+      if (symAt(x, y)) px(x, y, 0xffe9a8, 255); else if (inChannel(x, y)) px(x, y, 0xffb347, 235);
+      continue;
+    }
+    const edge = x === 0 || y === 0 || x === w - 1 || y === h - 1;
+    const n = Math.floor(rnd() * 3) - 1; let v = 0x6c7078;
+    v += n * 0x040404;
+    if (x === 1 || y === 1) v += 0x0c0c0c; if (x === w - 2 || y === h - 2) v -= 0x0c0c0c;           // bisell
+    if (edge) v = 0x2c2e34;
+    px(x, y, v);
+    if (!edge && inChannel(x, y)) {
+      px(x, y, 0x14161a);
+      if ((x === c0 && !inChannel(x - 1, y)) || (y === c0 && !inChannel(x, y - 1))) px(x, y, 0x0b0c0f);   // ombra a la vora superior-esquerra del solc
+    }
+    if (symAt(x, y)) px(x, y, 0xcdbf93);
+  }
+}
+
+function buildMausoleumMechanism(mats, parent) {
+  const M = MAUSOLEUM; const B = M.board; const D = M.door; const S = M.secret; const P = M.pedestal;
+  const root = makeGroup('MausoleumMechanism', 'MAU-MECH'); const disposables = [];
+  const dark = 0x6a707a;
+  // ---- fulla de la porta (pivot a la frontissa; local: +x cap a l'est quan és tancada) ----
+  const leaf = makeGroup('MausoleumDoorLeaf', 'MAU-LEAF'); leaf.position.set(D.hinge.x, 0, D.hinge.z);
+  const lb = new Builder(leaf, mats, 9301); const w = D.x1 - D.x0; const r = lb.rnd;
+  lb.add('doorOak', new THREE.BoxGeometry(w - 0.02, D.top - 0.02, 0.1).translate((w - 0.02) / 2 + 0.01, (D.top - 0.02) / 2, 0), 0, 0, 0, { tint: 0xb4a08a });
+  for (const yy of [0.55, 1.15, 1.75]) lb.add('plainD', new THREE.BoxGeometry(w - 0.06, 0.12, 0.012).translate(w / 2, yy, 0.056), 0, 0, 0, { tint: jit(pickOf(CEM_IRON, r), 0.15, r) });   // cintes de ferro
+  for (const yy of [0.55, 1.15, 1.75]) for (const dx of [0.2, 0.5, 0.9, 1.2]) lb.add('plainD', new THREE.BoxGeometry(0.05, 0.05, 0.02).translate(dx, yy, 0.066), 0, 0, 0, { tint: 0x4a4a52 });   // reblons
+  lb.add('wood', new THREE.BoxGeometry(w + 0.1, 0.14, 0.06).translate(w / 2, 1.5, 0.1), 0, 0, 0, { tint: jit(CEM_WOOD[2], 0.08, r) });                                                      // travesser
+  lb.add('plainD', new THREE.BoxGeometry(0.16, 0.2, 0.03).translate(w - 0.18, 1.0, 0.07), 0, 0, 0, { tint: 0x2a2a30 });                                                                    // placa del pany
+  lb.add('plainD', new THREE.BoxGeometry(0.03, 0.12, 0.034).translate(w - 0.18, 1.0, 0.075), 0, 0, 0, { tint: 0x8d7d5d });
+  lb.add('plainD', new THREE.BoxGeometry(0.1, 0.03, 0.034).translate(w - 0.18, 1.03, 0.075), 0, 0, 0, { tint: 0x8d7d5d });                                                                  // creu de la clau del cementiri
+  lb.finish(); markDynamic(leaf); root.add(leaf);
+
+  // ---- tauler (estàtic): placa de fons, marc, solcs d'entrada i sortida ----
+  const sb = new Builder(makeGroup('MausoleumBoardStatic', 'MAU-BOARD'), mats, 9302); root.add(sb.group);
+  const half = 1.5 * B.pitch; const zc = B.zc; const yc = B.yc; const xw = B.x;
+  sb.box('stone', { xMin: xw, xMax: xw + 0.04, yMin: yc - half, yMax: yc + half, zMin: zc - half, zMax: zc + half }, 0x2c2e34);                    // fons enfonsat
+  for (const [y0, y1, z0, z1] of [[yc + half, yc + half + 0.1, zc - half - 0.1, zc + half + 0.1], [yc - half - 0.1, yc - half, zc - half - 0.1, zc + half + 0.1],
+    [yc - half, yc + half, zc + half, zc + half + 0.1], [yc - half, yc + half, zc - half - 0.1, zc - half]]) sb.box('stone', { xMin: xw, xMax: xw + 0.11, yMin: y0, yMax: y1, zMin: z0, zMax: z1 }, dark);
+  const chan = 0.19 * 0.95;   // amplada del canal (6/32 d'una llosa)
+  const topY = yc + B.pitch; const botY = yc - B.pitch;           // fila 0 (dalt) i fila 2 (baix)
+  sb.box('stone', { xMin: xw + 0.02, xMax: xw + 0.06, yMin: topY - chan / 2, yMax: topY + chan / 2, zMin: zc + half, zMax: zc + half + 0.1 }, 0x14161a);   // entrada: a l'esquerra (sud) de la casella (0,0)
+  sb.box('stone', { xMin: xw + 0.02, xMax: xw + 0.06, yMin: botY - chan / 2, yMax: botY + chan / 2, zMin: zc - half - 0.1, zMax: zc - half }, 0x14161a);   // sortida: a la dreta (nord) de la casella (2,2)
+  sb.finish();
+
+  // ---- lloses ----
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x70747c, flatShading: true }); disposables.push(stoneMat);
+  const slabs = {}; const SL = B.slab; const half0 = SL / 2;
+  for (const tile of SLAB_PUZZLE.tiles) {
+    const g = makeGroup(`MausoleumSlab-${tile.id}`, `MAU-SLAB-${tile.id}`); markDynamic(g);
+    const faceTex = makeTexture(SLAB_PX, SLAB_PX, (px, ww, hh) => paintSlabFace(px, ww, hh, tile, 9400 + tile.id, false));
+    const glowTex = makeTexture(SLAB_PX, SLAB_PX, (px, ww, hh) => paintSlabFace(px, ww, hh, tile, 9400 + tile.id, true));
+    for (const t of [faceTex, glowTex]) if (t) { t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.generateMipmaps = false; t.minFilter = THREE.NearestFilter; disposables.push(t); }
+    const faceMat = new THREE.MeshLambertMaterial({ map: faceTex, color: faceTex ? 0xffffff : 0x70747c }); disposables.push(faceMat);
+    const glowMat = new THREE.MeshBasicMaterial({ map: glowTex, color: glowTex ? 0xffffff : 0xffb347, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }); disposables.push(glowMat);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(B.depth, SL, SL), stoneMat); body.name = `slab-${tile.id}-body`;
+    const front = new THREE.Mesh(new THREE.PlaneGeometry(SL, SL).rotateY(Math.PI / 2), faceMat); front.position.x = B.depth / 2 + 0.002; front.name = `slab-${tile.id}-face`;
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(SL, SL).rotateY(Math.PI / 2), glowMat); glow.position.x = B.depth / 2 + 0.004; glow.name = `slab-${tile.id}-glow`; glow.renderOrder = 5;
+    g.add(body, front, glow); root.add(g); slabs[tile.id] = { group: g, glowMat };
+  }
+  const slabX = xw + 0.04 + B.depth / 2;
+  const setSlabPose = (id, row, col) => slabs[id].group.position.set(slabX, yc + (1 - row) * B.pitch, zc + (1 - col) * B.pitch);   // columna 0 = esquerra = SUD (z gran)
+  const setSlabGlow = (id, v) => { slabs[id].glowMat.opacity = Math.max(0, Math.min(1, v)); };
+  SLAB_PUZZLE.start.forEach((id, i) => { if (id >= 0) setSlabPose(id, Math.floor(i / 3), i % 3); });
+
+  // ---- porta secreta (llosa de l'envà) ----
+  const sg = makeGroup('MausoleumSecretDoor', 'MAU-SECRET'); sg.position.set((S.x0 + S.x1) / 2, 0, (S.zMin + S.zMax) / 2);
+  const sbld = new Builder(sg, mats, 9303); const sw = S.x1 - S.x0; const sd = S.zMax - S.zMin;
+  sbld.box('stone', { xMin: -sw / 2, xMax: sw / 2, yMin: 0, yMax: S.top, zMin: -sd / 2, zMax: sd / 2 }, 0x5c626c);
+  for (const dy of [0.45, S.top - 0.45]) sbld.box('stone', { xMin: -sw / 2 + 0.12, xMax: sw / 2 - 0.12, yMin: dy - 0.04, yMax: dy + 0.04, zMin: sd / 2, zMax: sd / 2 + 0.012 }, 0x474c55);    // motllures a la cara de la cambra
+  sbld.box('stone', { xMin: -sw / 2 + 0.12, xMax: sw / 2 - 0.12, yMin: 0.45, yMax: S.top - 0.45, zMin: -sd / 2 - 0.012, zMax: -sd / 2 }, 0x50565f);
+  sbld.finish(); markDynamic(sg); root.add(sg);
+  const setSecretDrop = (p) => { sg.position.y = -S.sinkDepth * p; };
+
+  // ---- clau de bronze sobre el pedestal: anella amb tres campanes, canya i dents ----
+  const key = makeGroup('MausoleumKey', 'MAU-KEY'); const kb = new Builder(key, mats, 9304); const bronze = 0xb08540; const ky = P.height + 0.03;
+  kb.add('plainD', new THREE.TorusGeometry(0.055, 0.014, 4, 10).rotateX(Math.PI / 2), P.x - 0.12, ky + 0.014, P.z, { tint: bronze });
+  for (let k = 0; k < 3; k++) { const a = Math.PI + (k - 1) * 0.9; kb.add('plainD', new THREE.ConeGeometry(0.018, 0.04, 5), P.x - 0.12 + Math.cos(a) * 0.075, ky + 0.034, P.z + Math.sin(a) * 0.075, { tint: 0xc89a50 }); }
+  kb.add('plainD', new THREE.BoxGeometry(0.2, 0.022, 0.022), P.x + 0.03, ky + 0.012, P.z, { tint: bronze });
+  kb.add('plainD', new THREE.BoxGeometry(0.02, 0.022, 0.05), P.x + 0.11, ky + 0.012, P.z + 0.03, { tint: bronze });
+  kb.add('plainD', new THREE.BoxGeometry(0.02, 0.022, 0.035), P.x + 0.07, ky + 0.012, P.z + 0.025, { tint: bronze });
+  kb.finish(); root.add(key);
+
+  // ---- llum única ----
+  const L = M.light; const light = new THREE.PointLight(L.color, 0, L.distance, L.decay);
+  markDynamic(light); light.name = 'MausoleumLight'; light.position.set(L.hall.x, L.hall.y, L.hall.z); root.add(light);
+
+  parent.add(root);
+  return {
+    group: root, leaf, light, board: B,
+    setDoorAngle(a) { leaf.rotation.y = -a; },                // positiu = oberta: l'extrem lliure (x local +) gira cap al sud (+z), és a dir, cap a FORA
+    setSlabPose, setSlabGlow, setSecretDrop,
+    setKeyVisible(v) { key.visible = !!v; },
+    dispose() { disposables.forEach((d) => d.dispose()); },
+  };
+}
+
+// ---------------------------------------------------------------------
 // ORQUESTRADOR: murs, reixa, camins i atrezzo (tot el que dibuixa la Fase D.2). Un sol grup 'Cemetery'.
 // ---------------------------------------------------------------------
 const CEM_DRAW = {
@@ -4784,6 +4925,7 @@ export function buildVillage(scene, options = {}) {
   if (opts.decor) buildDecor(mats, root);
 
   scene.add(root);
+  const mausoleum = opts.cemetery ? buildMausoleumMechanism(mats, scene) : null; // Fase E: FORA de `root` (grup propi, com la cripta): no compta al poble ni al cementiri
   const crypt = opts.cemetery && opts.crypt !== false ? buildCrypt(mats, scene) : null; // Fase D.3: FORA de `root` (no compta a stats.triangles)
 
   // Tot és estàtic: calculem les matrius una vegada i deixem d'actualitzar-les.
@@ -4810,6 +4952,7 @@ export function buildVillage(scene, options = {}) {
 
   function dispose() {
     if (crypt) crypt.dispose();
+    if (mausoleum) { mausoleum.group.removeFromParent(); mausoleum.dispose(); }
     root.removeFromParent();
     root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     Object.values(mats).forEach((m) => m.dispose());
@@ -4824,5 +4967,5 @@ export function buildVillage(scene, options = {}) {
     setContainerProgress: furniture.handles.setContainer,
     setKeyVisible: furniture.handles.setKeyVisible,
   };
-  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, crypt, cemeteryGate, dispose };
+  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, crypt, cemeteryGate, mausoleum, dispose };
 }

@@ -10,6 +10,8 @@ import { BUILDINGS, WALLS, PROPS, DOORS, FURNITURE, STAIRS, FLOORS, SECRET_DOOR,
 import { createCryptAccess, undergroundView } from './player/crypt.js';
 import { installTheme, FONT_PIXEL, TEXT_MIN, PIXEL_GRID } from './ui/theme.js';
 import { createTitleScreen, GAME_TITLE } from './ui/titleScreen.js';
+import { createMausoleum } from './player/mausoleum.js'; // Fase E: mausoleu (porta amb KEY-C, trencaclosques de lloses, cambra i clau)
+import { MAUSOLEUM, SLAB_PUZZLE } from './world/mausoleumData.js';
 import { createCemeteryGate } from './player/cemeteryGate.js'; // Fase D.4: reixa del cementiri (s'obre amb KEY-C)
 import { createNoteView } from './ui/noteView.js';
 import { createCryptSounds } from './audio/cryptSounds.js';
@@ -402,6 +404,8 @@ colliders.push(...buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CRYPT_WA
 const cryptAccess = createCryptAccess(colliders, CRYPT);
 // Fase D.4: la reixa del cementiri. Substitueix el collider sòlid de M-E3 pel pilar nord (sempre) i el bloc de l'obertura (fins que la reixa és oberta).
 const cemeteryGate = createCemeteryGate(colliders, CEM_GATE, CEM_GATE_MECH);
+// Fase E: el bloc sòlid del mausoleu (layout.js, intacte) se substitueix per parets, porta i envà; la porta s'obre amb KEY-C.
+const mausoleum = createMausoleum(colliders, MAUSOLEUM, SLAB_PUZZLE);
 
 // Porta física de l'església (D1): dues fulles que giren. Les seves col·lisions (segments)
 // s'afegeixen a la mateixa llista i es MOUEN amb les fulles; doors.js en calcula l'estat.
@@ -435,7 +439,7 @@ let eyeY = EYE_HEIGHT;
 // Línia de visió de les portes de casa: només obstacles massissos (parets, escales), no els mobles baixos.
 const doorOccluders = buildColliders({ BUILDINGS, WALLS, PROPS: [], FURNITURE: [], STAIRS });
 const cryptOccluders = buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CRYPT_WALLS }).filter((c) => !c.id.startsWith('CH-N-B-')); // les peces de CH-N-B no són obstacles de visió
-const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS, crypt: { def: CRYPT, occluders: cryptOccluders }, cemeteryGate: { gate: cemeteryGate, def: CEM_GATE, mech: CEM_GATE_MECH } });
+const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS, crypt: { def: CRYPT, occluders: cryptOccluders }, cemeteryGate: { gate: cemeteryGate, def: CEM_GATE, mech: CEM_GATE_MECH }, mausoleum: { mau: mausoleum, occluders: mausoleum.colliders.filter((c) => c.id !== 'MAU-PEDESTAL' && c.id !== 'MAU-LEAF') } });
 const cryptVisual = village.crypt;            // geometria i animacions de la cripta (grup propi, fora del poble)
 const cryptSounds = createCryptSounds();
 const noteView = createNoteView(CRYPT);
@@ -466,6 +470,131 @@ function syncCemeteryGateVisual() { // només toca la geometria quan l'estat ha 
   const h = village.cemeteryGate; if (!h) return;
   const a = cemeteryGate.leafAngle(); if (a !== cemGateShown.leaf) { cemGateShown.leaf = a; h.setLeafAngle(a); }
   const d = cemeteryGate.lockDrop(); if (d !== cemGateShown.drop) { cemGateShown.drop = d; h.setLockDrop(d); }
+}
+
+// ---------------------------------------------------------------------
+// FASE E — MAUSOLEU: visuals, llum, sons i VISTA DE PROP DEL MECANISME DE LES LLOSES
+// ---------------------------------------------------------------------
+// Estat a src/player/mausoleum.js. Aquí només: (1) la geometria segueix l'estat, (2) la llum interior, (3) els sons i (4) el mode «tauler»:
+// amb E davant del mecanisme la càmera s'acosta (0,7 s) i el ratolí passa a ser un cursor virtual (el punter segueix capturat, així Esc continua
+// obrint la pausa). Arrossegar una llosa adjacent al forat la mou; un clic sense arrossegar també; les fletxes (o WASD) mouen la llosa que
+// entra al forat des d'aquest costat. E surt. En pausa o en carregar una partida el mode es tanca a l'instant.
+const mauVisual = village.mausoleum;
+const slab = { state: 'off', t: 0, from: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 }, cx: 0, cy: 0, hover: -1, drag: null, anim: null, doneAt: -1, hint: '' };
+const mauShown = { door: NaN, secret: NaN, key: null, pose: {}, glow: {} };
+const SLAB_PLANE_X = MAUSOLEUM.board.x + 0.04 + MAUSOLEUM.board.depth + 0.002;
+const smooth01 = (t) => t * t * (3 - 2 * t);
+const lerpAngle = (a, b, t) => { let d = ((b - a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI; return a + d * t; };
+const slabCursor = document.createElement('div');   // cursor virtual: petit rombe ambre (no intercepta res)
+slabCursor.style.cssText = 'position:fixed;left:0;top:0;width:18px;height:18px;margin:-9px 0 0 -9px;display:none;pointer-events:none;z-index:15;border:2px solid #f2d27a;transform:rotate(45deg);background:rgba(242,210,122,0.18);box-shadow:0 0 8px #000;';
+document.body.appendChild(slabCursor);
+const _ray = new THREE.Vector3();
+function slabCellAtCursor() {   // casella (0..8) sota el cursor, o -1; també retorna la posició fraccionària al tauler
+  camera.updateMatrixWorld(true);
+  const W = window.innerWidth; const H = window.innerHeight;
+  _ray.set((slab.cx / W) * 2 - 1, -((slab.cy / H) * 2 - 1), 0.5).unproject(camera).sub(camera.position).normalize();
+  if (Math.abs(_ray.x) < 1e-6) return { cell: -1, colF: NaN, rowF: NaN };
+  const t = (SLAB_PLANE_X - camera.position.x) / _ray.x; if (t <= 0) return { cell: -1, colF: NaN, rowF: NaN };
+  const B = MAUSOLEUM.board; const half = 1.5 * B.pitch;
+  const colF = (B.zc + half - (camera.position.z + _ray.z * t)) / B.pitch; const rowF = (B.yc + half - (camera.position.y + _ray.y * t)) / B.pitch;
+  const col = Math.floor(colF); const row = Math.floor(rowF);
+  return { cell: col >= 0 && col < 3 && row >= 0 && row < 3 ? row * 3 + col : -1, colF, rowF };
+}
+function enterSlabMode() {
+  if (slab.state !== 'off' || pause.paused || document.pointerLockElement !== renderer.domElement) return;
+  slab.from = { x: camera.position.x, y: camera.position.y, z: camera.position.z, yaw, pitch };
+  slab.state = 'in'; slab.t = 0; slab.drag = null; slab.hover = -1; slab.doneAt = -1;
+  slab.cx = window.innerWidth / 2; slab.cy = window.innerHeight / 2;
+  for (const k in keys) keys[k] = false; velocity.set(0, 0, 0);
+}
+function leaveSlabMode(instant) {
+  if (slab.state === 'off') return;
+  slab.drag = null; slab.hover = -1; slabCursor.style.display = 'none';
+  if (instant) { slab.state = 'off'; slab.t = 0; camera.position.set(slab.from.x, slab.from.y, slab.from.z); camera.rotation.y = yaw; camera.rotation.x = pitch; return; }
+  slab.state = 'out';
+}
+function slabTileAnimTarget(id) { const i = mausoleum.puzzle.cells.indexOf(id); return { r: Math.floor(i / 3), c: i % 3 }; }
+function startSlabDrag() {
+  if (slab.state !== 'on' || slab.drag) return;
+  const h = slabCellAtCursor(); if (h.cell < 0 || !mausoleum.puzzle.canMove(h.cell)) return;
+  const cells = mausoleum.puzzle.cells; const b = cells.indexOf(-1);
+  const dr = Math.floor(b / 3) - Math.floor(h.cell / 3); const dc = (b % 3) - (h.cell % 3);
+  slab.drag = { cell: h.cell, id: cells[h.cell], dr, dc, startRow: h.rowF, startCol: h.colF, t: 0, maxT: 0 };
+}
+function endSlabDrag() {
+  const d = slab.drag; if (!d) return; slab.drag = null;
+  if (d.t > 0.4 || d.maxT < 0.06) {   // arrossegat més de la meitat, o clic sense arrossegar → es mou
+    const r = mausoleum.puzzle.move(d.cell);
+    if (r.ok) { slab.anim[d.id] = { r: Math.floor(d.cell / 3) + d.dr * d.t, c: (d.cell % 3) + d.dc * d.t }; mauShown.pose[d.id] = null; cryptSounds.play('slab'); }
+  } else slab.anim[d.id] = { r: Math.floor(d.cell / 3) + d.dr * d.t, c: (d.cell % 3) + d.dc * d.t };
+}
+function slabKeyMove(code) {   // la llosa que entra al forat des del costat oposat a la tecla
+  const cells = mausoleum.puzzle.cells; const b = cells.indexOf(-1); const br = Math.floor(b / 3); const bc = b % 3;
+  const d = { ArrowLeft: [0, 1], KeyA: [0, 1], ArrowRight: [0, -1], KeyD: [0, -1], ArrowUp: [1, 0], KeyW: [1, 0], ArrowDown: [-1, 0], KeyS: [-1, 0] }[code]; if (!d) return false;
+  const r = br + d[0]; const c = bc + d[1]; if (r < 0 || r > 2 || c < 0 || c > 2) return true;
+  const i = r * 3 + c; const id = cells[i]; const res = mausoleum.puzzle.move(i);
+  if (res.ok) { slab.anim[id] = { r, c }; cryptSounds.play('slab'); }
+  return true;
+}
+function updateSlabMode(dt) {   // després del moviment normal: la càmera, el cursor i la sortida automàtica un cop resolt
+  if (slab.state === 'off') return;
+  const V = MAUSOLEUM.board.view;
+  if (slab.state === 'in') { slab.t += dt / V.seconds; if (slab.t >= 1) { slab.t = 1; slab.state = 'on'; } }
+  else if (slab.state === 'out') { slab.t -= dt / V.seconds; if (slab.t <= 0) { slab.t = 0; slab.state = 'off'; camera.position.set(slab.from.x, slab.from.y, slab.from.z); camera.rotation.y = yaw; camera.rotation.x = pitch; slabCursor.style.display = 'none'; return; } }
+  const e = smooth01(slab.t); const f = slab.from;
+  camera.position.set(f.x + (V.x - f.x) * e, f.y + (V.y - f.y) * e, f.z + (V.z - f.z) * e);
+  camera.rotation.y = lerpAngle(f.yaw, V.yaw, e); camera.rotation.x = f.pitch + (V.pitch - f.pitch) * e;
+  if (slab.state === 'on') {
+    const h = slabCellAtCursor(); slab.hover = h.cell;
+    if (slab.drag) {
+      const d = slab.drag; const proj = (h.colF - d.startCol) * d.dc + (h.rowF - d.startRow) * d.dr;
+      d.t = Number.isFinite(proj) ? Math.max(0, Math.min(1, proj)) : d.t; d.maxT = Math.max(d.maxT, d.t);
+    }
+    slabCursor.style.display = 'block'; slabCursor.style.left = `${slab.cx}px`; slabCursor.style.top = `${slab.cy}px`;
+    slabCursor.style.borderColor = slab.drag ? '#ffffff' : (slab.hover >= 0 && mausoleum.puzzle.canMove(slab.hover) ? '#f2d27a' : '#8d7d5d');
+    if (mausoleum.puzzle.solved) {                           // un cop resolt, es deixa veure la il·luminació i se surt sol
+      if (slab.doneAt < 0) slab.doneAt = gameTime + mausoleum.puzzle.glowSeconds() + 0.8;
+      if (gameTime >= slab.doneAt) leaveSlabMode(false);
+    }
+  }
+}
+function syncMausoleumVisual(dt) {   // només toca la geometria quan l'estat ha canviat
+  const h = mauVisual; if (!h) return;
+  const da = mausoleum.doorAngle(); if (da !== mauShown.door) { mauShown.door = da; h.setDoorAngle(da); }
+  const sp = mausoleum.secretProgress(); if (sp !== mauShown.secret) { mauShown.secret = sp; h.setSecretDrop(sp); }
+  const kv = !mausoleum.keyTaken; if (kv !== mauShown.key) { mauShown.key = kv; h.setKeyVisible(kv); }
+  const cells = mausoleum.puzzle.cells;
+  if (!slab.anim) { slab.anim = {}; cells.forEach((id, i) => { if (id >= 0) slab.anim[id] = { r: Math.floor(i / 3), c: i % 3 }; }); mauShown.pose = {}; }
+  const k = 1 - Math.exp(-22 * dt);
+  for (const t of SLAB_PUZZLE.tiles) {
+    const tgt = slabTileAnimTarget(t.id); const a = slab.anim[t.id]; let r; let c;
+    if (slab.drag && slab.drag.id === t.id) { r = Math.floor(slab.drag.cell / 3) + slab.drag.dr * slab.drag.t; c = (slab.drag.cell % 3) + slab.drag.dc * slab.drag.t; slab.anim[t.id] = { r, c }; }
+    else {
+      a.r += (tgt.r - a.r) * k; a.c += (tgt.c - a.c) * k; if (Math.abs(tgt.r - a.r) < 0.002) a.r = tgt.r; if (Math.abs(tgt.c - a.c) < 0.002) a.c = tgt.c;
+      r = a.r; c = a.c;
+    }
+    const sig = `${r.toFixed(3)}|${c.toFixed(3)}`; if (mauShown.pose[t.id] !== sig) { mauShown.pose[t.id] = sig; h.setSlabPose(t.id, r, c); }
+  }
+  // il·luminació progressiva dels canals, llosa a llosa pel recorregut (després, un pols suau)
+  const lit = mausoleum.puzzle.litCount(); const path = mausoleum.puzzle.path; const pulse = mausoleum.puzzle.glowDone() ? 0.88 + 0.12 * Math.sin(gameTime * 2.4) : 1;
+  for (const t of SLAB_PUZZLE.tiles) {
+    const idx = path.findIndex((cell) => cells[cell] === t.id);
+    const o = idx < 0 ? 0 : Math.max(0, Math.min(1, lit - idx)) * pulse; const q = o.toFixed(3);
+    if (mauShown.glow[t.id] !== q) { mauShown.glow[t.id] = q; h.setSlabGlow(t.id, o); }
+  }
+}
+let mauLightT = 0; let mauLightZ = MAUSOLEUM.light.hall.z;
+const MAU_SOUND = { doorOpen: 'door', solved: 'glow', stone: 'stone', key: 'key' };
+function mausoleumFrame(dt, seconds) {   // llum interior, sons i esdeveniments
+  const px = camera.position.x; const pz = camera.position.z; const I = MAUSOLEUM.interior; const D = MAUSOLEUM.door;
+  const inside = px > I.xMin - 0.2 && px < I.xMax + 0.2 && pz > I.zMin - 0.2 && pz < D.zMax + 0.2;
+  const nearOpenDoor = mausoleum.isOpen() && Math.abs(px - 15) < 2.5 && pz > D.zMax - 0.1 && pz < D.zMax + 3;   // des de la porta oberta es veu la sala il·luminada
+  const wantLight = (inside || nearOpenDoor) && playerLevel === 0 ? MAUSOLEUM.light.intensity * (0.94 + 0.04 * Math.sin(seconds * 7.3) + 0.02 * Math.sin(seconds * 19.1)) : 0;
+  mauLightT += (wantLight - mauLightT) * Math.min(1, 6 * dt);
+  const inChamber = pz < MAUSOLEUM.chamber.zMax + 0.2 && inside; const tz = inChamber ? MAUSOLEUM.light.chamber.z : MAUSOLEUM.light.hall.z;
+  mauLightZ += (tz - mauLightZ) * (1 - Math.exp(-3 * dt));
+  if (mauVisual) { mauVisual.light.intensity = mauLightT; mauVisual.light.position.set(MAUSOLEUM.light.hall.x, MAUSOLEUM.light.hall.y, mauLightZ); }
+  for (const ev of mausoleum.drainEvents()) if (MAU_SOUND[ev.type]) cryptSounds.play(MAU_SOUND[ev.type]);
 }
 const cryptShown = { disc: [NaN, NaN, NaN], seal: -1, unlock: -1, lid: -1, key: null, sel: -2 };
 function syncCryptVisual(px, pz, dirX, dirZ, t) { // només toca la geometria quan l'estat ha canviat
@@ -554,6 +683,7 @@ overlay.addEventListener('click', () => { requestLock(); });
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement;
   pause.onLockChange(locked);
+  if (!locked) leaveSlabMode(true);   // Fase E: en pausa el tauler es tanca a l'instant (l'estat de les lloses es manté)
   if (locked) {
     overlay.style.display = 'none'; pauseMenu.hide();
   } else {
@@ -578,6 +708,7 @@ const keys = { forward: false, back: false, left: false, right: false };
 // Fem servir event.code (posició física de la tecla), així WASD funciona
 // igual amb qualsevol disposició de teclat.
 function setKey(code, pressed) {
+  if (slab.state !== 'off') return;   // Fase E: amb el tauler de prop, WASD no mou el jugador
   if (code === 'KeyW') keys.forward = pressed;
   if (code === 'KeyS') keys.back = pressed;
   if (code === 'KeyA') keys.left = pressed;
@@ -588,14 +719,22 @@ document.addEventListener('keydown', (e) => {
     if (pause.paused && !e.repeat) pause.onEscape();
     return;
   }
+  if (slab.state !== 'off' && document.pointerLockElement === renderer.domElement) {   // Fase E: mode tauler
+    if (e.code === 'KeyE' && !e.repeat) leaveSlabMode(false);
+    else if (slab.state === 'on' && !slab.drag && !mausoleum.puzzle.solved && /^(Arrow|Key[WASD])/.test(e.code) && slabKeyMove(e.code)) e.preventDefault();
+    return;
+  }
   if (document.pointerLockElement === renderer.domElement) setKey(e.code, true); // en pausa no s'acumulen tecles
   // E: interacciona amb UN SOL objecte (el més proper i davant dels ulls): porta de l'església, calaix, arca, clau
   // o porta secreta. Només amb el ratolí capturat i sense repetició de tecla.
   if (e.code === 'KeyE' && !e.repeat && document.pointerLockElement === renderer.domElement) {
     gameplay.pressE(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw), { level: playerLevel, feetY });
+    if (mausoleum.takePuzzleRequest()) enterSlabMode();   // Fase E: E davant del mecanisme de lloses
   }
 });
 document.addEventListener('keyup', (e) => setKey(e.code, false));
+document.addEventListener('mousedown', (e) => { if (e.button === 0 && slab.state === 'on' && document.pointerLockElement === renderer.domElement) startSlabDrag(); });
+document.addEventListener('mouseup', (e) => { if (e.button === 0) endSlabDrag(); });
 
 // Rotació de la càmera:
 // yaw = girar a esquerra/dreta, pitch = mirar amunt/avall (en radians).
@@ -607,6 +746,10 @@ document.addEventListener('mousemove', (e) => {
   // Només girem si el ratolí està capturat i el moviment és fiable (sense el salt que alguns navegadors fan en recuperar el ratolí).
   if (document.pointerLockElement !== renderer.domElement) return;
   if (!pause.acceptMouse(e.movementX, e.movementY)) return;
+  if (slab.state !== 'off') {   // Fase E: el ratolí mou el cursor virtual del tauler, no la càmera
+    if (slab.state === 'on') { slab.cx = Math.max(0, Math.min(window.innerWidth, slab.cx + e.movementX)); slab.cy = Math.max(0, Math.min(window.innerHeight, slab.cy + e.movementY)); }
+    return;
+  }
   yaw -= e.movementX * MOUSE_SENSITIVITY;
   pitch -= e.movementY * MOUSE_SENSITIVITY;
   // Limitem el pitch perquè no es pugui fer una volta completa.
@@ -624,12 +767,12 @@ const rightDir = new THREE.Vector3();
 
 function updateHud() { // indicació d'E, missatge i inventari
   const locked = document.pointerLockElement === renderer.domElement;
-  const hintText = locked ? (gameplay.prompt || gameplay.hint(camera.position.x, camera.position.z)) : ''; // sense objectiu: indicació discreta de l'altar (D.3)
+  const hintText = locked && slab.state === 'on' ? (mausoleum.puzzle.solved ? '' : 'Arrossega les lloses al forat - E - sortir') : locked && slab.state !== 'off' ? '' : locked ? (gameplay.prompt || gameplay.hint(camera.position.x, camera.position.z)) : ''; // sense objectiu: indicació discreta de l'altar (D.3)
   if (doorHint.textContent !== hintText) { doorHint.textContent = hintText; doorHint.style.display = hintText ? 'block' : 'none'; }
   const msgText = gameplay.message;
   if (messageBox.textContent !== msgText) { messageBox.textContent = msgText; messageBox.style.display = msgText ? 'block' : 'none'; }
   const inv = gameplay.inventory.list();
-  const invText = inv.length ? `Inventari - ${inv.map((i) => i.name).join(' · ')}   (${inv.length}/${KEYS.length + 1} claus)` : '';
+  const invText = inv.length ? `Inventari - ${inv.map((i) => i.name).join(' · ')}   (${inv.length}/${KEYS.length + 1 + (gameplay.inventory.has(MAUSOLEUM.key.id) ? 1 : 0)} claus)` : '';
   if (inventoryBox.textContent !== invText) { inventoryBox.textContent = invText; inventoryBox.style.display = invText ? 'block' : 'none'; }
 }
 
@@ -690,6 +833,7 @@ function updatePlayer(dt) {
   syncPuzzleVisual();
   syncHouseDoors();
   syncCemeteryGateVisual();
+  syncMausoleumVisual(dt); mausoleumFrame(dt, gameTime);
   cryptFrame(dt, gameTime);
   syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
   trackProgress();
@@ -698,6 +842,7 @@ function updatePlayer(dt) {
   // Apliquem la rotació a la càmera.
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
+  updateSlabMode(dt);   // Fase E: si el tauler és de prop, la càmera i el cursor hi manen
 }
 
 // -----------------------------------------------------
@@ -716,6 +861,7 @@ const saveDefs = {
   churchLimits: { min: (churchSwing.minAngleDeg * Math.PI) / 180, max: (churchSwing.maxAngleDeg * Math.PI) / 180 },
   documentIds: documents.knownIds(), noteDocumentId: DOCUMENT_IDS.symbolNote, zoneIds: mapData.zones.map((z) => z.id),
   levelSplit: FLOORS.levelSplit, levelSplitDown: CRYPT_FLOORS.levelSplitDown, mapLimit: MAP_LIMIT, CEM_AREA,
+  MAUSOLEUM, SLAB_PUZZLE,   // Fase E
 };
 let storage = null;
 try { storage = window.localStorage; } catch (e) { storage = null; }
@@ -733,11 +879,11 @@ function trackProgress() { // documents descoberts i zones del mapa (cada fotogr
   if (gameplay.crypt && gameplay.crypt.note.seen()) documents.discover(DOCUMENT_IDS.symbolNote);
   mapProgress.update(camera.position.x, camera.position.z, playerLevel, mapFlags());
 }
-const saveCtx = () => ({ gameplay, getPose, setPose, documents, mapProgress, colliders, radius: PLAYER_RADIUS, mapLimit: MAP_LIMIT, afterRestore: () => cryptAccess.sync(gameplay.secretDoor.state) });
+const saveCtx = () => ({ gameplay, getPose, setPose, documents, mapProgress, colliders, radius: PLAYER_RADIUS, mapLimit: MAP_LIMIT, afterRestore: () => { cryptAccess.sync(gameplay.secretDoor.state); leaveSlabMode(true); slab.anim = null; } });
 
 // Després de carregar: la geometria, la llum i el HUD es posen al dia sense fer avançar el temps de joc.
 function refreshWorld() {
-  syncDoorVisual(); syncPuzzleVisual(); syncHouseDoors(); syncCemeteryGateVisual();
+  syncDoorVisual(); syncPuzzleVisual(); syncHouseDoors(); syncCemeteryGateVisual(); syncMausoleumVisual(0);
   cryptFrame(0, gameTime);
   syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
   trackProgress(); updateHud();
@@ -764,7 +910,7 @@ function doLoad() {
 const pauseMenu = createPauseMenu({
   drawMap,
   model: {
-    getInventory: () => inventoryEntries({ KEYS, CRYPT, keyDescription: (k) => KEY_DESCRIPTIONS[k.material] }, gameplay.inventory.list().map((i) => i.id)),
+    getInventory: () => inventoryEntries({ KEYS, CRYPT, MAUSOLEUM, keyDescription: (k) => KEY_DESCRIPTIONS[k.material] }, gameplay.inventory.list().map((i) => i.id)),
     getDocuments: () => documentEntries(documents.list()),
     getMap: () => { trackProgress(); return buildMapModel(mapData, mapProgress, getPose(), mapFlags()); },
     getSaveInfo: () => { const r = readSave(storage || { getItem: () => { throw new Error('sense emmagatzematge'); } }); return { status: r.status, savedAt: r.data && r.data.savedAt }; },
@@ -772,7 +918,7 @@ const pauseMenu = createPauseMenu({
   actions: { resume: () => pause.resume(), save: doSave, load: doLoad },
 });
 // Eina de depuració per a proves en navegador (consola: window.__forgottenVillage); el joc no la fa servir
-window.__forgottenVillage = { pause, documents, getPose, setPose, refreshWorld, doSave, doLoad, gameplay, mapProgress, get gameTime() { return gameTime; } };
+window.__forgottenVillage = { pause, documents, mausoleum, slab, getPose, setPose, refreshWorld, doSave, doLoad, gameplay, mapProgress, get gameTime() { return gameTime; } };
 
 // -----------------------------------------------------
 // 11. REDIMENSIONAT DE LA FINESTRA

@@ -16,13 +16,16 @@ import { createGameplay } from '../src/player/puzzle.js';
 import { createCryptAccess } from '../src/player/crypt.js';
 import { createCemeteryGate } from '../src/player/cemeteryGate.js';
 import { buildVillage } from '../src/world/village.js';
-import { captureState, canSave, validateSave, applyState, SAVE_VERSION } from '../src/game/saveGame.js';
+import { formatSavedAt, captureState, canSave, validateSave, applyState, SAVE_VERSION } from '../src/game/saveGame.js';
 import { createDocuments, documentDefs, DOCUMENT_IDS } from '../src/player/documents.js';
 import { buildMapData, createMapProgress, buildMapModel, zoneAccessible } from '../src/world/mapData.js';
-import { FONT_FACES, FONT_TITLE, FONT_TEXT, fontFaceCSS } from '../src/ui/theme.js';
+import zlib from 'node:zlib';
+import { FONT_FACES, fontFaceCSS, numeral } from '../src/ui/theme.js';
 import { GAME_TITLE, CONTROLS, titleScale } from '../src/ui/titleScreen.js';
 import { TITLE_IMAGE, FONT_PIXEL } from '../src/ui/theme.js';
 import { TABS } from '../src/ui/pauseMenu.js';
+import { wrapLabel } from '../src/ui/mapView.js';
+import { inventorySummary } from '../src/ui/menuModel.js';
 
 const { CRYPT, CRYPT_WALLS, CRYPT_FLOORS, FLOORS, KEYS, SECRET_DOOR, DOORS, PLAYER, BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS, CEM_WALLS, CEM_PROPS, CEM_GATE, CEM_GATE_MECH, CEM_AREA, D4_REMOVED_COLLIDERS } = LAYOUT;
 let passed = 0; let failed = 0;
@@ -337,10 +340,17 @@ test('H3. El cartell no té obstacle propi i la resta de col·lisions dels murs 
 });
 
 // =====================================================================
-SECTION('I. Títol «EL POBLE» i tipografia');
+SECTION('I. Títol «El Poble» i tipografia ÚNICA (D.6: Pixel Monastery Script)');
 // =====================================================================
 const FONT_DIR = new URL('../src/assets/fonts/', import.meta.url);
-test('I1. El títol visible és «El Poble» (D.5: majúscula inicial); el nom intern (identificador de partida i claus) no ha canviat', () => {
+const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*\/\//.test(l)).map((l) => { const i = l.search(/\s\/\/\s/); return i < 0 ? l : l.slice(0, i); }).join('\n');   // codi sense comentaris
+const walkDir = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkDir(new URL(`${e.name}/`, dir)) : [new URL(e.name, dir)]));
+const SRC_FILES = walkDir(new URL('../src/', import.meta.url)).filter((u) => u.pathname.endsWith('.js'));
+const CODE = (rel) => strip(read(`../src/${rel}`));
+const UI_FILES = ['main.js', 'ui/theme.js', 'ui/titleScreen.js', 'ui/pauseMenu.js', 'ui/mapView.js', 'ui/noteView.js'];
+// Constants de mida dels mòduls, substituïdes pel seu valor per poder llegir les mides finals del CSS.
+const resolveSizes = (s) => s.replace(/\$\{(PIXEL_GRID|BIG)\}/g, '30').replace(/\$\{(TEXT_MIN|SMALL)\}/g, '24');
+test('I1. El títol visible és «El Poble» (majúscula inicial); el nom intern (identificador de partida i claus) no ha canviat', () => {
   expect(GAME_TITLE === 'El Poble', GAME_TITLE); const m = read('../src/main.js'); expect(/document\.title = GAME_TITLE/.test(m), 'document.title'); expect(!/The Forgotten Village<\/div>/.test(m), 'ja no es mostra l\'antic títol');
   expect(read('../src/game/saveGame.js').includes('the-forgotten-village'), 'identificador tècnic intacte');
 });
@@ -348,24 +358,72 @@ test('I2. La pantalla inicial és la de titleScreen.js (capa amb el mateix mecan
   const m = read('../src/main.js'); expect(/const overlay = createTitleScreen\(document\.body\)/.test(m), 'overlay'); expect(/overlay\.style\.display = 'none'/.test(m) && /overlay\.style\.display = 'flex'/.test(m), 'toggle');
   const t = CONTROLS.map((c) => c.join(' ')).join(' '); expect(/W A S D/.test(t) && /Ratol/.test(t) && /\bE\b/.test(t) && /Esc/.test(t), t);
 });
-test('I3. Fonts LOCALS: els fitxers existeixen, són woff vàlids, tenen la llicència OFL al costat i cap URL és externa', () => {
-  expect(FONT_FACES.length === 5 && FONT_FACES.some((f) => f.family === 'Pixel Monastery Script'), 'cinc variants (inclosa la Pixel Monastery Script, D.5)');
-  for (const f of FONT_FACES) { expect(!/^https?:/.test(f.url) || f.url.startsWith('file:'), `URL externa: ${f.url}`); const p = new URL(f.url); const b = fs.readFileSync(p); expect(b.length > 5000 && b.slice(0, 4).toString() === 'wOFF', `no és woff: ${p.pathname}`); }
-  for (const l of ['OFL-Gloock.txt', 'OFL-CrimsonPro.txt', 'LLICENCIES.md', 'PixelMonasteryScript.woff']) expect(fs.existsSync(new URL(l, FONT_DIR)), `falta ${l}`);
-  expect(/SIL OPEN FONT LICENSE/i.test(fs.readFileSync(new URL('OFL-Gloock.txt', FONT_DIR), 'utf8')), 'OFL');
-  const all = ['main.js', 'ui/theme.js', 'ui/titleScreen.js', 'ui/pauseMenu.js', 'ui/mapView.js', 'ui/noteView.js'].map((f) => read(`../src/${f}`)).join('\n'); expect(!/fonts\.googleapis|fonts\.gstatic|cdnjs|<link[^>]+stylesheet/i.test(all), 'dependència externa');
+test('I3. Una sola font al paquet: només PixelMonasteryScript.woff (woff vàlid) + LLICENCIES.md; ja no hi ha cap fitxer de Gloock ni de Crimson Pro', () => {
+  expect(FONT_FACES.length === 1 && FONT_FACES[0].family === 'Pixel Monastery Script' && FONT_FACES[0].style === 'normal', 'una sola @font-face');
+  const files = fs.readdirSync(FONT_DIR); expect(files.filter((f) => /\.(woff2?|ttf|otf)$/i.test(f)).join() === 'PixelMonasteryScript.woff', `fitxers de font: ${files.join(', ')}`);
+  expect(!files.some((f) => /gloock|crimson|OFL/i.test(f)), 'cap residu de Gloock/Crimson Pro/OFL');
+  const b = fs.readFileSync(new URL(FONT_FACES[0].url)); expect(b.slice(0, 4).toString() === 'wOFF' && b.length > 20000, 'woff vàlid'); expect(!/^https?:/.test(FONT_FACES[0].url), 'URL local');
 });
-test('I4. Les fonts cobreixen tots els caràcters catalans del text del joc (accents, ç, ·, cometes) i les regles @font-face són coherents', () => {
-  const css = fontFaceCSS(); expect((css.match(/@font-face/g) || []).length === 5 && /font-display: swap/.test(css), 'font-face');
-  expect(/Gloock/.test(FONT_TITLE) && /Crimson Pro/.test(FONT_TEXT) && /serif$/.test(FONT_TITLE) && /serif$/.test(FONT_TEXT), 'pila amb alternativa serif');
+test('I4. fontFaceCSS: una @font-face amb font-display: block (mai es veu una altra font mentre carrega), font-synthesis: none i regla global per a html/body/botons/inputs', () => {
+  const css = fontFaceCSS(); expect((css.match(/@font-face/g) || []).length === 1 && /font-display: block/.test(css), 'font-face'); expect(/font-synthesis: none/.test(css), 'sense negreta/cursiva falses');
+  expect(/html, body, button, input, select, textarea \{ font-family: 'Pixel Monastery Script'; font-synthesis: none; \}/.test(css), 'regla global'); expect(!/serif|Georgia|Palatino|Gloock|Crimson/i.test(css + FONT_PIXEL), 'cap pila de reserva');
 });
-test('I5. Tota la interfície fa servir el tema (cap «Georgia» solta a la pantalla inicial, menú, mapa, nota ni missatges)', () => {
-  for (const f of ['main.js', 'ui/pauseMenu.js', 'ui/mapView.js', 'ui/noteView.js', 'ui/titleScreen.js']) { const s = read(`../src/${f}`).replace(/\/\/.*$/gm, ''); expect(!/font-family:\s*Georgia|px Georgia/.test(s), `${f} té Georgia`); expect(/FONT_TEXT|FONT_TITLE/.test(s), `${f} no usa el tema`); }
-  expect(/El Poble/.test(read('../src/ui/mapView.js')), 'el mapa porta el nom del joc'); expect(/FONT_PIXEL/.test(read('../src/ui/pauseMenu.js')), 'capçaleres de menú en pixel art');
+test('I5. Les fonts antigues no existeixen com a exports (FONT_TITLE / FONT_TEXT) ni s\'importen enlloc', () => {
+  const t = CODE('ui/theme.js'); expect(!/FONT_TITLE|FONT_TEXT/.test(t), 'theme.js'); for (const f of SRC_FILES) expect(!/FONT_TITLE|FONT_TEXT/.test(strip(fs.readFileSync(f, 'utf8'))), f.pathname);
 });
 
 // =====================================================================
-SECTION('I-bis. D.5: títol «El Poble» en pixel art (imatge + font)');
+SECTION('M. Auditoria tipogràfica: cap ús residual de Crimson Pro, Gloock ni de cap altra tipografia');
+// =====================================================================
+test('M1. Cap font alternativa al codi: ni Crimson Pro, Gloock, Georgia, Palatino, Times, Arial, Helvetica, Courier, Verdana, system-ui ni famílies genèriques (serif, sans-serif, monospace, cursive, fantasy)', () => {
+  const bad = []; for (const f of SRC_FILES) { const c = strip(fs.readFileSync(f, 'utf8')); const m = c.match(/Crimson|Gloock|Georgia|Palatino|Times New|Arial|Helvetica|Courier|Verdana|Tahoma|Trebuchet|Segoe|system-ui|-apple-system|BlinkMacSystemFont|\b(?:sans-serif|serif|monospace|cursive|fantasy)\b/i); if (m) bad.push(`${f.pathname.split('/src/')[1]}: ${m[0]}`); }
+  expect(bad.length === 0, bad.join('; '));
+});
+test('M2. Tots els `font-family` del codi són Pixel Monastery Script (via FONT / FONT_PIXEL / FONT_FAMILY) i cap `font:` abreujat porta una altra família', () => {
+  const bad = []; for (const f of SRC_FILES) { const rel = f.pathname.split('/src/')[1]; const c = strip(fs.readFileSync(f, 'utf8')); for (const m of c.matchAll(/font-family:\s*([^;`'"\n]*(?:'[^']*')?[^;`\n]*)/g)) { const v = m[1].trim(); if (!/^\$\{(FONT|FONT_PIXEL)\}$/.test(v) && !(rel === 'ui/theme.js' && v === "'${f.family}'") && !/^'Pixel Monastery Script'/.test(v)) bad.push(`${rel}: ${v}`); } for (const m of c.matchAll(/[^-]font:\s*[^;`\n]*/g)) bad.push(`${f.pathname.split('/src/')[1]}: ${m[0].trim()}`); }
+  expect(bad.length === 0, bad.join('; '));
+});
+test('M3. Tot el text dibuixat al canvas (mapa, icones, etiquetes) fa servir ctx.font amb FONT_PIXEL i ≥ 24 px', () => {
+  let n = 0; for (const f of SRC_FILES) { const c = resolveSizes(strip(fs.readFileSync(f, 'utf8'))); for (const m of c.matchAll(/\.font\s*=\s*([^;\n]+)/g)) { n++; const mm = m[1].match(/^`(\d+)px \$\{FONT_PIXEL\}`$/); expect(mm && Number(mm[1]) >= 24, `${f.pathname.split('/src/')[1]}: ctx.font = ${m[1]}`); } }
+  expect(n >= 4, `només ${n} ctx.font trobats`);
+});
+test('M4. Cap mida de text de la interfície per sota de 24 px (CSS, estils en línia i clamp); la mida «normal» és de 30 px (quadrícula nativa)', () => {
+  const sizes = []; for (const rel of UI_FILES) { const c = resolveSizes(CODE(rel)); for (const m of c.matchAll(/font-size:\s*(?:clamp\()?\s*(\d+(?:\.\d+)?)px/g)) sizes.push([rel, Number(m[1])]); }
+  expect(sizes.length >= 20, `només ${sizes.length} mides`); const low = sizes.filter(([, v]) => v < 24); expect(low.length === 0, `per sota de 24 px: ${JSON.stringify(low)}`);
+  expect(sizes.filter(([, v]) => v === 30).length >= 12 && sizes.filter(([, v]) => v === 24).length >= 8, 'ús de les dues mides base (30 i 24)');
+  expect(!sizes.some(([, v]) => v !== 30 && v !== 24 && v < 30), 'cap mida intermèdia entre 24 i 30 (a 24 i 30 la font es veu nítida)');
+});
+test('M5. Cap negreta ni cursiva: ni `italic`, ni `bold`, ni `font-weight` ≠ normal/400 ni <b>/<i>/<em>/<strong> amb estil propi (la font no en té; font-synthesis: none ho impediria igualment)', () => {
+  const bad = []; for (const f of SRC_FILES) { const c = strip(fs.readFileSync(f, 'utf8')); if (/font-style:\s*italic|\bitalic\b/.test(c)) bad.push(`${f.pathname.split('/src/')[1]}: italic`); if (/\bbold\b|font-weight:\s*(?:[5-9]00|bold)/.test(c)) bad.push(`${f.pathname.split('/src/')[1]}: bold`); }
+  expect(bad.length === 0, bad.join('; '));
+});
+test('M6. Tots els elements de la interfície i les finestres declaren la font: .fv-pause (menú), .fv-frame→arrel, pantalla inicial, nota, HUD (indicació, missatge, inventari) i regla global', () => {
+  expect(/\.fv-pause \{[^}]*font-family: \$\{FONT\}[^}]*font-synthesis: none/.test(CODE('ui/pauseMenu.js')), 'pausa'); expect(/font-family: \$\{FONT_PIXEL\}; text-align: center; cursor: pointer;/.test(CODE('ui/titleScreen.js')), 'pantalla inicial');
+  expect(/font-family: \$\{FONT_PIXEL\}; font-synthesis: none; font-size: \$\{PIXEL_GRID\}px/.test(CODE('ui/noteView.js')), 'nota'); const m = CODE('main.js'); expect((m.match(/font-family: \$\{FONT_PIXEL\}; font-synthesis: none;/g) || []).length === 3, 'HUD: indicació, missatge i inventari');
+  expect(/installTheme\(\)/.test(m), 'installTheme() cridat');
+});
+test('M7. La interfície no fa servir cap caràcter que la font no té: es llegeix la taula cmap del woff i es comprova tot caràcter no ASCII del codi (excepte dades de layout.js i el dibuix de la fletxa del cartell)', () => {
+  const b = fs.readFileSync(new URL(FONT_FACES[0].url)); const dir = []; const n = b.readUInt16BE(12);
+  for (let i = 0; i < n; i++) { const o = 44 + i * 20; dir.push({ tag: b.slice(o, o + 4).toString(), off: b.readUInt32BE(o + 4), clen: b.readUInt32BE(o + 8), olen: b.readUInt32BE(o + 12) }); }
+  const t = dir.find((d) => d.tag === 'cmap'); const raw = b.slice(t.off, t.off + t.clen); const cm = t.clen < t.olen ? zlib.inflateSync(raw) : raw; const cps = new Set();
+  const nt = cm.readUInt16BE(2); for (let i = 0; i < nt; i++) { const pid = cm.readUInt16BE(4 + i * 8); const eid = cm.readUInt16BE(6 + i * 8); const off = cm.readUInt32BE(8 + i * 8); if (!((pid === 3 && (eid === 1 || eid === 10)) || pid === 0)) continue; const fmt = cm.readUInt16BE(off);
+    if (fmt === 4) { const sc = cm.readUInt16BE(off + 6) / 2; const endO = off + 14; const startO = endO + sc * 2 + 2; for (let s = 0; s < sc; s++) { const e = cm.readUInt16BE(endO + s * 2); const st = cm.readUInt16BE(startO + s * 2); for (let c = st; c <= e && c < 0xffff; c++) cps.add(c); } }
+    else if (fmt === 12) { const ng = cm.readUInt32BE(off + 12); for (let g = 0; g < ng; g++) { const st = cm.readUInt32BE(off + 16 + g * 12); const e = cm.readUInt32BE(off + 20 + g * 12); for (let c = st; c <= e; c++) cps.add(c); } } }
+  expect(cps.size > 300 && cps.has(0x45) && cps.has(0xe7) && cps.has(0xb7), `cmap llegida (${cps.size} caràcters)`);
+  for (const ch of '«»—→➤✕…') expect(!cps.has(ch.codePointAt(0)), `la font ara SÍ té ${ch}: es podria tornar a fer servir`);   // documenta el motiu de les substitucions
+  const bad = []; for (const f of SRC_FILES) { const rel = f.pathname.split('/src/')[1]; if (rel === 'world/layout.js') continue; const c = strip(fs.readFileSync(f, 'utf8'));
+    for (const ch of new Set(c)) if (ch.charCodeAt(0) > 126 && !cps.has(ch.codePointAt(0)) && !(rel === 'world/village.js' && ch === '→')) bad.push(`${rel}: ${ch} (U+${ch.codePointAt(0).toString(16)})`); }
+  expect(bad.length === 0, `caràcters sense glif a la font: ${bad.join('; ')}`);
+});
+test('M8. Els números: la font els escriu en xifres romanes i el zero és buit; el joc ho gestiona (0 claus = «Cap clau de N», la data desada sense «00» ni «:», mitjanit amb paraules)', () => {
+  expect(inventorySummary([{ collected: false }, { collected: false }, { collected: false }]) === 'Cap clau de 3', 'zero claus'); expect(inventorySummary([{ collected: true }, { collected: false }, { collected: false }]) === '1 de 3 claus', 'una clau');
+  expect(numeral(0) === 'cap' && numeral(7) === '7', 'numeral()');
+  for (const [iso, want] of [['2026-11-21T10:30:00', '21 de novembre de 2026, 10 h 30 min'], ['2026-04-05T00:05:00', "5 d'abril de 2026, mitjanit 5 min"], ['2026-12-01T15:00:00', '1 de desembre de 2026, 15 h']]) { const g = formatSavedAt(iso); expect(g === want, `${iso} → ${g}`); expect(!/\b0\d|:|00/.test(g), `zero o dos punts a la data: ${g}`); }
+  expect(formatSavedAt('no és una data') === '', 'data invàlida');
+});
+
+// =====================================================================
+SECTION('I-bis. D.5/D.6: títol «El Poble» en pixel art (imatge + font) i menús');
 // =====================================================================
 const pngSize = (u) => { const b = fs.readFileSync(new URL(u)); expect(b.slice(1, 4).toString() === 'PNG', 'no és PNG'); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20), colorType: b[25] }; };
 test('K1. Les imatges del títol existeixen, són PNG amb transparència i fan la mida declarada a TITLE_IMAGE (i el fantasma, la mateixa)', () => {
@@ -373,48 +431,47 @@ test('K1. Les imatges del títol existeixen, són PNG amb transparència i fan l
   expect(a.w === TITLE_IMAGE.width && a.h === TITLE_IMAGE.height && g.w === a.w && g.h === a.h, `${JSON.stringify(a)} ${JSON.stringify(g)}`); expect(a.colorType === 6 && g.colorType === 6, 'ha de ser RGBA');
   expect(!/^https?:/.test(TITLE_IMAGE.url), 'ruta local');
 });
-test('K2. titleScale: sempre un enter ≥ 1, creix amb la finestra i no se surt de pantalla (≤ 72 % amplada, ≤ 34 % alçada)', () => {
+test('K2. titleScale: sempre un enter ≥ 1, creix amb la finestra i no se surt de pantalla (≤ 72 % amplada, ≤ 30 % alçada)', () => {
   for (const [w, h] of [[320, 480], [800, 500], [1280, 720], [1440, 900], [1920, 1080], [2560, 1440], [4000, 2000]]) {
-    const k = titleScale(w, h); expect(Number.isInteger(k) && k >= 1, `k=${k}`); if (k > 1) expect(TITLE_IMAGE.width * k <= w * 0.72 + 1e-9 && TITLE_IMAGE.height * k <= h * 0.34 + 1e-9, `${w}x${h} k=${k}`);
+    const k = titleScale(w, h); expect(Number.isInteger(k) && k >= 1, `k=${k}`); if (k > 1) expect(TITLE_IMAGE.width * k <= w * 0.72 + 1e-9 && TITLE_IMAGE.height * k <= h * 0.30 + 1e-9, `${w}x${h} k=${k}`);
   }
   expect(titleScale(1920, 1080) > titleScale(800, 500) && titleScale(100, 100) === 1, 'monòton i mínim 1');
 });
-test('K3. La pantalla inicial usa la imatge amb factor enter (image-rendering: pixelated) i té text de reserva amb la font si no carrega', () => {
-  const t = read('../src/ui/titleScreen.js'); expect(/image-rendering: pixelated/.test(t) && /TITLE_IMAGE\.url/.test(t) && /fv-fallback/.test(t) && /'error'/.test(t), 'imatge + reserva'); expect(/aria-label/.test(t), 'accessible');
+test('K3. La pantalla inicial usa la imatge amb factor enter (image-rendering: pixelated) i té text de reserva amb la mateixa font si no carrega', () => {
+  const t = read('../src/ui/titleScreen.js'); expect(/image-rendering: crisp-edges; image-rendering: pixelated/.test(t) && /TITLE_IMAGE\.url/.test(t) && /fv-fallback/.test(t) && /'error'/.test(t), 'imatge + reserva'); expect(/aria-label/.test(t), 'accessible');
 });
-test('K4. La font pixel es carrega des del paquet local, el nom no depèn de cap servei i només s\'usa a 30 px (múltiples) a capçaleres i mapa', () => {
-  expect(/Pixel Monastery Script/.test(FONT_PIXEL), FONT_PIXEL); expect(/30px \$\{FONT_PIXEL\}/.test(read('../src/ui/mapView.js')), 'mapa a 30 px'); expect(/font-family: \$\{FONT_PIXEL\}[^}]*font-size: 30px/.test(read('../src/ui/pauseMenu.js')), 'menú a 30 px');
-  const woff = fs.readFileSync(new URL('../src/assets/fonts/PixelMonasteryScript.woff', import.meta.url)); expect(woff.slice(0, 4).toString() === 'wOFF' && woff.length > 20000, 'woff vàlid');
+test('K4. La font es carrega del paquet local i el mapa dibuixa la capçalera «El Poble» a 30 px', () => {
+  expect(/Pixel Monastery Script/.test(FONT_PIXEL), FONT_PIXEL); expect(/30px \$\{FONT_PIXEL\}`; ctx\.fillText\('El Poble'/.test(read('../src/ui/mapView.js')), 'mapa a 30 px');
 });
-// Extreu el cos d'una regla CSS del menú de pausa pel seu selector exacte (el CSS és a pauseMenu.js com a plantilla de text).
-const cssRule = (sel) => { const src = read('../src/ui/pauseMenu.js'); const i = src.indexOf(`\n${sel} {`); expect(i >= 0, `no trobo la regla ${sel}`); const e = src.indexOf('\n', i + 1); return src.slice(i + 1, e < 0 ? src.length : e); };   // les regles del menú són d'una sola línia
-test('L1. Els cinc botons de navegació usen la font pixel a 30 px exactes (selector .fv-nav .fv-btn[data-tab]), sense separació de lletres', () => {
-  const r = cssRule('.fv-nav .fv-btn[data-tab]'); expect(/font-family: \$\{FONT_PIXEL\}/.test(r) && /font-size: 30px/.test(r) && /letter-spacing: 0;/.test(r), r);
-  expect(!/\$\{TITLE\}|FONT_TITLE/.test(r), 'no pot dependre de Gloock');
+test('K5. La llicència de la Pixel Monastery Script és a LLICENCIES.md amb el nom de l\'autor i el seu estat real (no és OFL) i ja no parla de Gloock ni de Crimson Pro com a fonts del joc', () => {
+  const l = read('../src/assets/fonts/LLICENCIES.md'); expect(/Pixel Monastery Script/.test(l) && /Beťko|Betko/.test(l) && /All rights reserved/i.test(l), 'falta la nota');
+  expect(/no s'utilitzen|retirad/i.test(l) || !/Gloock|Crimson/.test(l.replace(/retirad[^\n]*/gi, '')), 'LLICENCIES.md encara presenta Gloock/Crimson Pro com a fonts actives');
 });
-test('L2. Els noms dels cinc botons porten majúscula inicial i la resta en minúscula (Inventari, Documents, Mapa, Guardar, Carregar), i no hi ha text-transform', () => {
+const cssRule = (sel) => { const src = resolveSizes(read('../src/ui/pauseMenu.js')); const i = src.indexOf(`\n${sel} {`); expect(i >= 0, `no trobo la regla ${sel}`); const e = src.indexOf('\n', i + 1); return src.slice(i + 1, e < 0 ? src.length : e); };   // les regles del menú són d'una sola línia
+test('L1. Els cinc botons de navegació usen la font pixel a 30 px exactes (selector .fv-nav .fv-btn[data-tab]) i també .fv-btn (Tornar al joc), sense separació de lletres', () => {
+  for (const sel of ['.fv-nav .fv-btn[data-tab]', '.fv-btn']) { const r = cssRule(sel); expect(/font-family: \$\{FONT\}/.test(r) && /font-size: 30px/.test(r) && /letter-spacing: 0;/.test(r), `${sel}: ${r}`); }
+});
+test('L2. Els noms dels cinc botons porten majúscula inicial i la resta en minúscula (Inventari, Documents, Mapa, Guardar, Carregar), i no hi ha text-transform al menú', () => {
   expect(TABS.map((t) => t[1]).join(',') === 'Inventari,Documents,Mapa,Guardar,Carregar', TABS.map((t) => t[1]).join(','));
-  expect(!/text-transform/.test(cssRule('.fv-nav .fv-btn[data-tab]')) && !/text-transform/.test(cssRule('.fv-btn')), 'cap text-transform que torni a posar majúscules');
+  expect(!/text-transform/.test(CODE('ui/pauseMenu.js')), 'cap text-transform que torni a posar majúscules al menú');
 });
 test('L3. «Pausa» i les capçaleres interiors (.fv-title i .fv-h) segueixen en font pixel a 30 px, i el text «Pausa» té majúscula inicial', () => {
-  for (const sel of ['.fv-title', '.fv-h']) { const r = cssRule(sel); expect(/font-family: \$\{FONT_PIXEL\}/.test(r) && /font-size: 30px/.test(r) && /letter-spacing: 0;/.test(r), `${sel}: ${r}`); }
+  for (const sel of ['.fv-title', '.fv-h']) { const r = cssRule(sel); expect(/font-family: \$\{FONT\}/.test(r) && /font-size: 30px/.test(r) && /letter-spacing: 0;/.test(r), `${sel}: ${r}`); }
   expect(/el\('div', 'fv-title', 'Pausa'\)/.test(read('../src/ui/pauseMenu.js')), 'Pausa');
 });
-test('L4. Els textos llargs i descriptius continuen en Crimson Pro (família base del menú) i no es redimensionen: .fv-p, .fv-sub, .fv-key-desc, .fv-doc-text, missatges', () => {
-  const src = read('../src/ui/pauseMenu.js'); expect(/const FONT = FONT_TEXT;/.test(src), 'FONT = Crimson Pro'); expect(/\.fv-root \{[^}]*font-family: \$\{FONT\}/.test(src) || /font-family: \$\{FONT\}/.test(src), 'família base');
-  for (const sel of ['.fv-p', '.fv-sub']) { if (src.includes(`\n${sel} {`)) { const r = cssRule(sel); expect(!/FONT_PIXEL|\$\{TITLE\}/.test(r), `${sel} no pot ser pixel/títol`); } }
-  expect(!/\.fv-(p|sub|key-desc|doc-text)[^{]*\{[^}]*FONT_PIXEL/.test(src), 'cap text llarg en pixel');
+test('L4. Els textos descriptius del menú també són Pixel Monastery Script, a 24 px (mínim) i els títols de document / noms de clau a 30 px; el cos dels documents a 30 px', () => {
+  for (const sel of ['.fv-p', '.fv-sub', '.fv-key-desc', '.fv-doc-src', '.fv-legend', '.fv-note', '.fv-tag', '.fv-hint']) expect(/font-size: 24px/.test(cssRule(sel)), `${sel}: ${cssRule(sel)}`);
+  for (const sel of ['.fv-key-name', '.fv-doc-title', '.fv-doc', '.fv-doc-text', '.fv-act']) expect(/font-size: 30px/.test(cssRule(sel)), `${sel}: ${cssRule(sel)}`);
+  expect(/\.fv-pause \{[^}]*font-family: \$\{FONT\}/.test(resolveSizes(read('../src/ui/pauseMenu.js'))), 'família base del menú');
 });
-test('L5. Les capçaleres que es fan servir (header(...)) tenen majúscula inicial; «Tornar al joc» i els botons d\'acció (.fv-act) no han canviat de font', () => {
+test('L5. Capçaleres amb majúscula inicial (header(...)); documents amb la llista a dalt i el text a tota l\'amplada (30 px només hi caben ~22 lletres en una columna estreta)', () => {
   const src = read('../src/ui/pauseMenu.js'); const hs = [...src.matchAll(/header\('([^']+)'/g)].map((m) => m[1]); expect(hs.join(',') === 'Inventari,Documents,Mapa,Guardar,Carregar', hs.join(','));
-  expect(/\.fv-btn \{ font-family: \$\{TITLE\}; font-size: 14px;/.test(src), '.fv-btn base (Tornar al joc) intacte'); expect(/\.fv-act \{[^}]*font-family: \$\{TITLE\}/.test(src), '.fv-act intacte');
+  expect(/flex-direction: column/.test(cssRule('.fv-docs')) && /flex-direction: row/.test(cssRule('.fv-doclist')) && /flex-wrap: wrap/.test(cssRule('.fv-doclist')), 'disposició dels documents');
+  expect(/overflow: auto/.test(cssRule('.fv-content')), 'el contingut fa scroll en lloc de tallar-se');
 });
-test('L6. La capçalera del mapa («El Poble») es dibuixa amb la font pixel a 30 px i no queda cap font de títol antiga al dibuix de la capçalera', () => {
-  const m = read('../src/ui/mapView.js'); expect(/ctx\.font = `30px \$\{FONT_PIXEL\}`; ctx\.fillText\('El Poble'/.test(m), 'capçalera'); expect(!/FONT_TITLE/.test(m.replace(/\/\/.*$/gm, '')), 'FONT_TITLE ja no s\'usa al mapa');
-  expect(/import \{ FONT_TEXT, FONT_PIXEL \} from '\.\/theme\.js'/.test(m), 'import');
-});
-test('K5. La llicència de la Pixel Monastery Script és a LLICENCIES.md amb el nom de l\'autor i el seu estat real (no és OFL)', () => {
-  const l = read('../src/assets/fonts/LLICENCIES.md'); expect(/Pixel Monastery Script/.test(l) && /Beťko|Betko/.test(l) && /All rights reserved/i.test(l), 'falta la nota');
+test('L6. La capçalera del mapa («El Poble») es dibuixa amb la font pixel a 30 px, les etiquetes a 24 px amb salt de línia i les creus de «no accessible» són dibuixades', () => {
+  const m = read('../src/ui/mapView.js'); expect(/ctx\.font = `30px \$\{FONT_PIXEL\}`; ctx\.fillText\('El Poble'/.test(m), 'capçalera'); expect(/import \{ FONT_PIXEL, TEXT_MIN \} from '\.\/theme\.js'/.test(m), 'import');
+  expect(wrapLabel('Entrada del bosc (reixa tancada)').join('|') === 'Entrada del|bosc (reixa|tancada)', wrapLabel('Entrada del bosc (reixa tancada)').join('|')); expect(wrapLabel('Plaça').join('|') === 'Plaça', 'etiqueta curta');
 });
 
 // =====================================================================
@@ -424,7 +481,7 @@ test('J1. Integració a main.js: reixa creada després dels colliders, passada a
   const m = read('../src/main.js');
   expect(m.includes('createCemeteryGate(colliders, CEM_GATE, CEM_GATE_MECH)'), 'creació'); expect(/cemeteryGate: \{ gate: cemeteryGate, def: CEM_GATE, mech: CEM_GATE_MECH \}/.test(m), 'createGameplay');
   expect(m.includes('cemeteryOpen: cemeteryGate.isOpen()'), 'mapa'); expect(/mapLimit: MAP_LIMIT, CEM_AREA,/.test(m), 'defs de desat amb CEM_AREA'); expect(m.includes('syncCemeteryGateVisual()'), 'sincronització visual');
-  expect(m.includes('buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS })'), 'buildColliders intacte'); expect(m.split('\n').length < 950, 'main.js no s\'ha d\'inflar');
+  expect(m.includes('buildColliders({ BUILDINGS, WALLS, PROPS, FURNITURE, STAIRS })'), 'buildColliders intacte'); expect(m.split('\n').length < 1000, 'main.js no s\'ha d\'inflar (límit pujat a 1000 a la Fase E)');
 });
 test('J2. La versió del format de desat no ha canviat (les partides de la D.3.1 continuen carregant-se)', () => { expect(SAVE_VERSION === 1, `SAVE_VERSION=${SAVE_VERSION}`); });
 
