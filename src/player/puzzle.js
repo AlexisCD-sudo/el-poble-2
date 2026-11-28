@@ -13,6 +13,7 @@
 
 import { createInventory, pickTarget, DOOR_INTERACTION } from './interactions.js';
 import { createCryptGame } from './crypt.js';
+import { BELFRY_TEXT } from '../world/belfryData.js';   // Fase F: textos del campanar
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smooth = (t) => t * t * (3 - 2 * t);
@@ -100,6 +101,7 @@ export function createSecretDoor(def) {
 //         occluders (col·lisions massisses per a la línia de visió de les portes de casa; opcional), playerRadius (0,35),
 //         crypt (Fase D.3, opcional): { def: CRYPT, occluders: parets de la cripta } → afegeix la caixa-pista, l'altar dels discs, el sarcòfag i KEY-C,
 //         mausoleum (Fase E, opcional): { mau (de mausoleum.js) } → porta del mausoleu, mecanisme de lloses i clau KEY-BELLS
+//         belfry (Fase F, opcional): { bel (de belfry.js) } → porta del campanar (KEY-BELLS, no es gasta) i les tres cordes de les campanes
 //         cemeteryGate (Fase D.4, opcional): { gate (de cemeteryGate.js), def: CEM_GATE, mech: CEM_GATE_MECH } → la reixa del cementiri, que s'obre amb KEY-C }
 // `view` (opcional a update/pressE) = { level, feetY }: pis i alçada dels peus del jugador (Fase C.1).
 export function createGameplay(opts) {
@@ -257,6 +259,41 @@ export function createGameplay(opts) {
     });
   }
 
+  // 8. Campanar (Fase F): porta de la paret oest de la nau (KEY-BELLS, que NO es gasta) i les tres cordes de la sala de les campanes (nivell 1, y = 7).
+  const be = opts.belfry || null;
+  if (be) {
+    const D = be.bel.def.door; const cone = (it) => Math.cos((it.coneDeg / 2) * Math.PI / 180);
+    targets.push({
+      id: D.id, x: D.interactionPoint.x, z: D.interactionPoint.z, range: D.interact.maxDistance, priority: 0,
+      spatial: { maxDistance: D.interact.maxDistance, coneCos: cone(D.interact), level: 0, baseY: 0, maxDy: DOOR_INTERACTION.maxDy },
+      enabled: () => be.bel.doorState === 'closed',
+      prompt: () => (inventory.has(D.keyId) ? 'E - obrir la porta amb la clau' : 'E - examinar la porta'),
+      use: () => {
+        if (!inventory.has(D.keyId)) { say(BELFRY_TEXT.doorLocked, 7); return { action: 'locked' }; }
+        if (be.bel.openDoor()) say(BELFRY_TEXT.doorOpen, 8);   // la clau continua a l'inventari
+        return { action: 'open' };
+      },
+    });
+    const R = be.bel.def.rope; const floorY = be.bel.def.tower.floorY;
+    be.bel.def.bells.forEach((bell, i) => {
+      targets.push({
+        id: `BEL-ROPE-${bell.id}`, x: bell.rope.x, z: bell.rope.z, range: R.interact.maxDistance, priority: 0,
+        spatial: { maxDistance: R.interact.maxDistance, coneCos: cone(R.interact), level: 1, baseY: floorY, maxDy: DOOR_INTERACTION.maxDy },
+        enabled: () => be.bel.isOpen() && !be.bel.resonating,
+        prompt: () => BELFRY_TEXT.ropeHint,
+        use: () => {
+          const e = be.bel.ring(i);
+          if (!e) return { action: 'none' };
+          if (e.free) say(BELFRY_TEXT.afterSolved, 4);
+          else if (!e.correct) say(BELFRY_TEXT.wrong, 4);
+          else if (e.progress < be.bel.def.solution.length) say(BELFRY_TEXT.step, 4);
+          else say(BELFRY_TEXT.solved, 9);
+          return { action: 'ring', bell: bell.id };
+        },
+      });
+    });
+  }
+
   // Definició d'un objecte de l'inventari a partir del seu id (per recuperar-lo en carregar una partida; mai se'n dupliquen).
   const itemDef = (id) => {
     const k = keyDef(id);
@@ -269,13 +306,13 @@ export function createGameplay(opts) {
 
   let current = null;
   const api = {
-    inventory, secretDoor, containers, targets, houseDoors: doorsById, crypt, churchDoor, cemeteryGate: cg ? cg.gate : null, mausoleum: mu ? mu.mau : null,
+    inventory, secretDoor, containers, targets, houseDoors: doorsById, crypt, churchDoor, cemeteryGate: cg ? cg.gate : null, mausoleum: mu ? mu.mau : null, belfry: be ? be.bel : null,
     knownItemIds: allKeyIds,
     // --- Desar / carregar (Fase D.3.1) ---
     // Tot l'estat de la partida que viu aquí. Un estat transitori es normalitza al seu destí; `isSettled()` diu si NO n'hi ha cap en curs.
     isSettled() {
       return !churchDoor.isAnimating() && secretDoor.isSettled() && Object.values(containers).every((c) => c.isSettled())
-        && houseDoors.every((hd) => hd.isSettled()) && (!crypt || crypt.isSettled()) && (!cg || cg.gate.isSettled()) && (!mu || mu.mau.isSettled());
+        && houseDoors.every((hd) => hd.isSettled()) && (!crypt || crypt.isSettled()) && (!cg || cg.gate.isSettled()) && (!mu || mu.mau.isSettled()) && (!be || be.bel.isSettled());
     },
     snapshot() {
       const cont = {}; for (const [id, c] of Object.entries(containers)) cont[id] = c.snapshot();
@@ -287,6 +324,7 @@ export function createGameplay(opts) {
         crypt: crypt ? crypt.snapshot() : null,
         ...(cg ? { cemeteryGate: cg.gate.snapshot() } : {}),
         ...(mu ? { mausoleum: mu.mau.snapshot() } : {}),
+        ...(be ? { belfry: be.bel.snapshot() } : {}),
       };
     },
     // Aplica un estat JA VALIDAT (saveGame.validateSave). No emet esdeveniments ni sons i buida missatges i objectiu.
@@ -300,6 +338,7 @@ export function createGameplay(opts) {
       secretDoor.restore(snap.secretDoor);
       if (crypt && snap.crypt) crypt.restore(snap.crypt);
       if (mu) mu.mau.restore(snap.mausoleum || null);                  // partides anteriors a la Fase E: mausoleu tancat i tauler inicial
+      if (be) be.bel.restore(snap.belfry || null);                     // partides anteriors a la Fase F: porta del campanar tancada, campanes sense resoldre
       if (cg) cg.gate.restore(snap.cemeteryGate || { open: false });   // partides de la D.3.1 (sense aquest camp): reixa tancada
       msg.text = ''; msg.ttl = 0; current = null;
     },
@@ -319,6 +358,7 @@ export function createGameplay(opts) {
       if (crypt) crypt.update(dt, px, pz, dirX, dirZ);
       if (cg) cg.gate.update(dt);
       if (mu) mu.mau.update(dt);
+      if (be) be.bel.update(dt);
       if (msg.ttl > 0) msg.ttl -= dt;
       current = pickTarget(targets, px, pz, dirX, dirZ, view);
     },

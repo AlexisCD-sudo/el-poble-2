@@ -74,7 +74,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { LAYOUT_META, PLAZA, BUILDINGS, WALLS, PROPS, DOORS, LIGHTS, FURNITURE, SECRET_DOOR, KEYS, CANDLES, COBWEBS, INTERIOR_LIGHTS, FLOORS, STAIRS, GATE, FOREST, CEM_AREA, CEM_WALLS, CEM_GATE, CEM_REAR_GATE, CEM_PATHS, CEM_PROPS, CRYPT, CRYPT_WALLS, CRYPT_PROPS } from './layout.js';
 import { SYMBOL_CELLS, SYMBOL_ATLAS_SIZE, paintSymbols } from './cryptSymbols.js';
 import { WORLD_TEXT } from './worldText.js';   // Fase D.6: textos del món en Pixel Monastery Script (mapes de bits generats)
-import { MAUSOLEUM, SLAB_PUZZLE } from './mausoleumData.js';   // Fase E: interior del mausoleu, tauler de lloses i cambra
+import { MAUSOLEUM, SLAB_PUZZLE } from './mausoleumData.js';
+import { BELFRY, holeSector, deg, stairTotalDeg } from './belfryData.js';   // Fase F: campanar buit, escala de cargol i sala de les campanes   // Fase E: interior del mausoleu, tauler de lloses i cambra
 import { SYMBOL_BITMAPS } from './cryptSymbols.js';
 
 const EPS = 1e-9;
@@ -1534,7 +1535,7 @@ function gableShape(halfW, eave, ridge, door, windows = [], extraHoles = []) {
 }
 
 // Paret lateral (E/W): rectangle de x0 a x1 i alçada `eave`, amb forats de finestra gòtica.
-function sideWallShape(x0, x1, eave, windowXs) {
+function sideWallShape(x0, x1, eave, windowXs, extraHoles = []) {
   const s = new THREE.Shape();
   s.moveTo(x0, 0);
   s.lineTo(x1, 0);
@@ -1542,6 +1543,7 @@ function sideWallShape(x0, x1, eave, windowXs) {
   s.lineTo(x0, eave);
   const W = NAVE.window;
   for (const cx of windowXs) s.holes.push(gothicHole(cx, W.w, W.sill, W.straight, W.apex));
+  for (const h of extraHoles) s.holes.push(h);   // Fase F: el pas de la porta del campanar a la paret oest
   return s;
 }
 
@@ -1666,7 +1668,8 @@ function buildNave(group, mats, building, seed) {
     if (!(x0 >= -half - EPS && x1 <= half + EPS)) fail(`${building.id}: paret ${face} fora de l'empremta`);
     const windowXs = NAVE.bays.map((bay) => (it.zMin + bay - fi.center) * fi.sign);
     b.setFrame(fi.frame);
-    b.add('stone', extrudeWall(sideWallShape(x0, x1, eave, windowXs), t), 0, 0, 0, { tint: st.wall, colorFn: depthShade(t, inner) });
+    const sideHoles = face === 'west' && building.id === 'CH-N' ? [buildNaveDoorHole(fi)] : [];   // Fase F: pas de la porta del campanar
+    b.add('stone', extrudeWall(sideWallShape(x0, x1, eave, windowXs, sideHoles), t), 0, 0, 0, { tint: st.wall, colorFn: depthShade(t, inner) });
     b.add('stone', naveWedge(x0, x1, t, eave, slope), 0, 0, 0, { tint: st.wall, colorFn: depthShade(t, inner) });
     const W = NAVE.window;
     for (const cx of windowXs) { // creu de fusta al mig del gruix de la paret
@@ -1741,7 +1744,7 @@ function buildTower(group, mats, building, seed) {
     && n.visual.footprint.xMin > fp.xMin && n.visual.footprint.xMin < fp.xMax
     && n.visual.footprint.zMin < fp.zMax && n.visual.footprint.zMax > fp.zMin);
   const bodyXMax = nave ? nave.visual.footprint.xMin : fp.xMax;
-  b.box('stone', { xMin: fp.xMin, xMax: bodyXMax, yMin: 0, yMax: bodyH, zMin: fp.zMin, zMax: fp.zMax + TOWER.southBump }, st.wall);
+  buildTowerShell(b, fp, st, bodyH, bodyXMax);   // Fase F: ja no és un bloc massís; parets de 0,4 m amb lancetes i obertures reals (només la cara est, dins la nau, segueix massissa)
   if (nave) b.box('stone', { xMin: bodyXMax, xMax: fp.xMax, yMin: nave.visual.eaveHeight, yMax: bodyH, zMin: fp.zMin, zMax: fp.zMax + TOWER.southBump }, st.wall);
   b.box('stone', { xMin: fp.xMin - 0.1, xMax: fp.xMax + 0.1, yMin: bodyH - 0.25, yMax: bodyH, zMin: fp.zMin - 0.1, zMax: fp.zMax + 0.1 }, 0xe6e6ee);
   // Socle: si la nau és adossada, s'atura a la seva cara exterior (no pot sobresortir dins l'interior).
@@ -1759,28 +1762,29 @@ function buildTower(group, mats, building, seed) {
       b.box('stone', { xMin: fp.xMin - 0.04, xMax: fp.xMin + l, yMin: y, yMax: y + 0.62, zMin: zA, zMax: zB }, jit(0xe2e4ea, 0.06, b.rnd));
     }
   }
-  // Troneres (lancetes estretes) a S, N i O
+  // Marcs de les lancetes (S, N i O): ara són forats reals a la paret (buildTowerShell); aquí només el marc de pedra
   for (const face of ['south', 'north', 'west']) {
     const info = faceInfo(fp, face);
     b.setFrame(info.frame);
     const zOff = face === 'south' ? TOWER.southBump : 0;
-    for (const y of [2.8, 5.6]) {
-      b.add('stone', gothicGeometry(0.5, 0.8, 0.3, 0.05), 0, y, zOff, { tint: 0xe2e4ea });
-      b.add('glass', gothicGeometry(0.26, 0.8, 0.2, 0.02), 0, y, zOff + 0.05, { tint: 0x14161f });
-    }
+    for (const y of BEL_LANCET_Y) b.add('stone', gothicFrameGeometry(0.06), 0, y, zOff, { tint: 0xe2e4ea });
     b.setFrame(null);
   }
-  // Obertures del campanar amb campana (4 cares)
+  // Obertures del campanar: marc de pedra als forats reals (S, N, O). La cara est és dins la teulada de la nau: hi queda l'obertura cega d'abans.
   for (const face of ALL_FACES) {
     const info = faceInfo(fp, face);
     b.setFrame(info.frame);
-    const zOff = face === 'south' ? TOWER.southBump : 0;
     const y0 = TOWER.belfryY;
-    b.add('stone', archGeometry(1.5, 1.4, 0.05), 0, y0 - 0.05, zOff, { tint: 0xe2e4ea });
-    b.add('glass', archGeometry(1.2, 1.4, 0.05), 0, y0, zOff + 0.03, { tint: 0x0e1016 });
-    b.box('wood', { xMin: -0.62, xMax: 0.62, yMin: 9.3, yMax: 9.42, zMin: zOff + 0.06, zMax: zOff + 0.2 }, TIMBER);
-    b.add('plainD', new THREE.ConeGeometry(0.32, 0.55, 8), 0, 9.02, zOff + 0.13, { tint: 0x8a6a30 });
-    b.box('plainD', { xMin: -0.03, xMax: 0.03, yMin: 8.65, yMax: 8.8, zMin: zOff + 0.1, zMax: zOff + 0.16 }, 0x2a282e);
+    if (face !== 'east') {
+      const zOff = face === 'south' ? TOWER.southBump : 0;
+      b.add('stone', archFrameGeometry(1.5, 1.4, BEL_OPENING.w, BEL_OPENING.straight, 0.05, 0.05), 0, y0 - 0.05, zOff, { tint: 0xe2e4ea });
+    } else {
+      b.add('stone', archGeometry(1.5, 1.4, 0.05), 0, y0 - 0.05, 0, { tint: 0xe2e4ea });
+      b.add('glass', archGeometry(1.2, 1.4, 0.05), 0, y0, 0.03, { tint: 0x0e1016 });
+      b.box('wood', { xMin: -0.62, xMax: 0.62, yMin: 9.3, yMax: 9.42, zMin: 0.06, zMax: 0.2 }, TIMBER);
+      b.add('plainD', new THREE.ConeGeometry(0.32, 0.55, 8), 0, 9.02, 0.13, { tint: 0x8a6a30 });
+      b.box('plainD', { xMin: -0.03, xMax: 0.03, yMin: 8.65, yMax: 8.8, zMin: 0.1, zMax: 0.16 }, 0x2a282e);
+    }
     b.setFrame(null);
   }
   // Piràmide de teula (pissarra) i creu de ferro
@@ -1791,6 +1795,191 @@ function buildTower(group, mats, building, seed) {
   b.box('plainD', { xMin: cx - 0.045, xMax: cx + 0.045, yMin: apex - 0.05, yMax: apex + TOWER.crossHeight, zMin: cz - 0.045, zMax: cz + 0.045 }, 0x2a282e);
   b.box('plainD', { xMin: cx - 0.25, xMax: cx + 0.25, yMin: apex + 0.4, yMax: apex + 0.49, zMin: cz - 0.045, zMax: cz + 0.045 }, 0x2a282e);
   b.finish();
+}
+
+// ---------------------------------------------------------------------
+// FASE F — EL CAMPANAR: paret buida amb obertures reals, porta de la nau, escala de cargol, sala de les campanes
+// (la col·lisió i la lògica són a src/player/belfry.js; les dades, a src/world/belfryData.js)
+// ---------------------------------------------------------------------
+// Silueta rectangular d'una paret amb forats.
+function towerWallShape(x0, x1, h, holes) {
+  const s = new THREE.Shape();
+  s.moveTo(x0, 0); s.lineTo(x1, 0); s.lineTo(x1, h); s.lineTo(x0, h);
+  for (const p of holes) s.holes.push(p);
+  return s;
+}
+// Forat d'arc de mig punt (base a y0, costats rectes fins a `straight`).
+function archHolePath(cx, width, y0, straight) {
+  const r = width / 2; const p = new THREE.Path();
+  p.moveTo(cx - r, y0); p.lineTo(cx + r, y0); p.lineTo(cx + r, y0 + straight);
+  p.absarc(cx, y0 + straight, r, 0, Math.PI, false);
+  p.lineTo(cx - r, y0);
+  return p;
+}
+// Marc de pedra d'un arc (anell): silueta exterior amb el forat de la finestra al darrere.
+function archFrameGeometry(wOut, strOut, wIn, strIn, dy, depth) {
+  const ro = wOut / 2; const ri = wIn / 2; const s = new THREE.Shape();
+  s.moveTo(-ro, 0); s.lineTo(ro, 0); s.lineTo(ro, strOut); s.absarc(0, strOut, ro, 0, Math.PI, false); s.lineTo(-ro, 0);
+  const h = new THREE.Path();
+  h.moveTo(-ri, dy); h.lineTo(ri, dy); h.lineTo(ri, dy + strIn); h.absarc(0, dy + strIn, ri, 0, Math.PI, false); h.lineTo(-ri, dy);
+  s.holes.push(h);
+  return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 6 });
+}
+// Marc d'una lanceta (anell gòtic).
+function gothicFrameGeometry(depth) {
+  const hw = 0.25; const s = new THREE.Shape();
+  s.moveTo(-hw, 0); s.lineTo(hw, 0); s.lineTo(hw, 0.8); s.quadraticCurveTo(hw, 0.8 + 0.3 * 0.75, 0, 1.1); s.quadraticCurveTo(-hw, 0.8 + 0.3 * 0.75, -hw, 0.8); s.lineTo(-hw, 0);
+  s.holes.push(gothicHole(0, 0.26, 0.06, 0.7, 0.2));
+  return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 4 });
+}
+const BEL_LANCET_Y = [2.8, 5.6];
+const BEL_OPENING = { w: 1.2, straight: 1.4 };
+// Parets del cos del campanar (S, N i O) amb lancetes i obertures reals. Retorna res: afegeix al builder `b`.
+function buildTowerShell(b, fp, st, bodyH, bodyXMax) {
+  const t = BELFRY.tower.wall; const bump = TOWER.southBump;
+  const faces = [
+    { face: 'south', off: bump, xr: [fp.xMin - (fp.xMin + fp.xMax) / 2, bodyXMax - (fp.xMin + fp.xMax) / 2], thick: t + bump },
+    { face: 'north', off: 0, xr: [-(bodyXMax - (fp.xMin + fp.xMax) / 2), -(fp.xMin - (fp.xMin + fp.xMax) / 2)], thick: t },
+    { face: 'west', off: 0, xr: null, thick: t },
+  ];
+  for (const f of faces) {
+    const info = faceInfo(fp, f.face);
+    const xr = f.xr || [-info.len / 2, info.len / 2];
+    const holes = [];
+    for (const y of BEL_LANCET_Y) holes.push(gothicHole(0, 0.26, y + 0.06, 0.7, 0.2));
+    holes.push(archHolePath(0, BEL_OPENING.w, TOWER.belfryY, BEL_OPENING.straight));
+    b.setFrame({ ...info.frame, z: info.frame.z + (f.face === 'south' ? f.off : 0) });
+    b.add('stone', extrudeWall(towerWallShape(xr[0], xr[1], bodyH, holes), f.thick), 0, 0, 0, { tint: st.wall, colorFn: depthShade(f.thick, NAVE.tint.inner) });
+    b.setFrame(null);
+  }
+}
+
+function buildNaveDoorHole(fi) { // forat apuntat de la porta del campanar a la paret oest de la nau (coordenades locals de la cara oest)
+  const D = BELFRY.door; const xl = ((D.zMin + D.zMax) / 2 - fi.center) * fi.sign;
+  return gothicHole(xl, D.zMax - D.zMin, 0.02, D.height - 0.6 - 0.02, 0.6);
+}
+
+// Interior del campanar: escala, sala de les campanes, porta. Grup FORA de `root` (com la cripta i el mausoleu: no compta al poble).
+function buildBelfryInterior(mats, parent) {
+  const B = BELFRY; const S = B.stair; const I = B.tower.interior; const D = B.door;
+  const root = makeGroup('BelfryInterior', 'BEL-INT'); const disposables = [];
+  const b = new Builder(makeGroup('BelfryStatic', 'BEL-STATIC'), mats, 9701); root.add(b.group);
+  const r = b.rnd; const inner = NAVE.tint.inner; const total = stairTotalDeg(S); const top = B.tower.floorY;
+  const hs = holeSector(B);
+  const stairH = (th) => { const d = th - S.startDeg; return d < 0 || d > total ? null : (d / total) * top; };
+
+  // terra de la planta baixa
+  b.box('stone', { xMin: I.xMin, xMax: I.xMax, yMin: 0, yMax: 0.03, zMin: I.zMin, zMax: I.zMax }, jit(0x565c66, 0.04, r));
+  // paret interior circular (r = rOut), des de terra fins al forjat; oberta a l'arc de la porta (±35° de l'est)
+  {
+    const SEG = 32; const pos = []; const uv = []; const idx = [];
+    let n = 0;
+    for (let i = 0; i < SEG; i++) {
+      const a0 = (i / SEG) * 360; const a1 = ((i + 1) / SEG) * 360; const mid = (a0 + a1) / 2; const mm = mid > 180 ? mid - 360 : mid;
+      if (Math.abs(mm) < 35) continue;
+      const p = (a, y) => [S.cx + S.rOut * Math.cos(deg(a)), y, S.cz + S.rOut * Math.sin(deg(a))];
+      const q = [p(a0, 0), p(a1, 0), p(a1, top), p(a0, top)];
+      const arc = (S.rOut * Math.PI * 2) / SEG;
+      // cara visible des de l'interior (cap al centre)
+      pos.push(...q[0], ...q[1], ...q[2], ...q[3]);
+      uv.push(0, 0, arc / TILE.stone, 0, arc / TILE.stone, top / TILE.stone, 0, top / TILE.stone);
+      idx.push(n, n + 1, n + 2, n, n + 2, n + 3); n += 4;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    b.add('stone', g, 0, 0, 0, { tint: jit(inner, 0.03, r) });
+  }
+  // pilar central (newel) i el seu capitell
+  b.add('plain', new THREE.CylinderGeometry(S.rIn, S.rIn + 0.03, 7.7, 10), S.cx, 3.85, S.cz, { tint: 0x6e747e });
+  b.add('plain', new THREE.CylinderGeometry(S.rIn + 0.08, S.rIn + 0.05, 0.12, 10), S.cx, 7.74, S.cz, { tint: 0x7e848e });
+  // graons: caixes radials (irregulars de to i de gruix). El terra de joc és la rampa que passa pel centre de cada graó (belfry.js).
+  const stepDeg = total / S.steps; const midR = (S.rIn + S.rOut) / 2; const len = S.rOut - S.rIn + 0.05;
+  for (let i = 0; i < S.steps; i++) {
+    const th = S.startDeg + (i + 0.5) * stepDeg; const h = ((i + 0.5) / S.steps) * top;
+    const a = deg(th);
+    const geo = new THREE.BoxGeometry(len, 0.26 + r() * 0.04, 0.36);
+    scaleUV(geo, 1 / TILE.stone);
+    b.add('stone', geo, S.cx + midR * Math.cos(a), h - 0.14, S.cz + midR * Math.sin(a), { rotY: -a, tint: jit(0x7b808a, 0.1, r) });
+  }
+  // forjat de la sala: rectangle de l'interior menys el sector del forat (vista en planta: shape (x, −z))
+  {
+    const s = new THREE.Shape();
+    s.moveTo(I.xMin, -I.zMin); s.lineTo(I.xMax, -I.zMin); s.lineTo(I.xMax, -I.zMax); s.lineTo(I.xMin, -I.zMax);
+    const hole = new THREE.Path(); const a0 = hs.fromDeg; const a1 = hs.fromDeg + hs.spanDeg; const ro = S.rOut - 0.01; const N = 18;
+    for (let k = 0; k <= N; k++) { const a = deg(a0 + ((a1 - a0) * k) / N); const px = S.cx + ro * Math.cos(a); const py = -(S.cz + ro * Math.sin(a)); if (k === 0) hole.moveTo(px, py); else hole.lineTo(px, py); }
+    for (let k = N; k >= 0; k--) { const a = deg(a0 + ((a1 - a0) * k) / N); hole.lineTo(S.cx + S.rIn * Math.cos(a), -(S.cz + S.rIn * Math.sin(a))); }
+    s.holes.push(hole);
+    const g = new THREE.ExtrudeGeometry(s, { depth: B.tower.floorThickness, bevelEnabled: false, curveSegments: 4 });
+    g.rotateX(-Math.PI / 2); scaleUV(g, 1 / TILE.wood);
+    b.add('wood', g, 0, top - B.tower.floorThickness, 0, { tint: jit(0x6a5a50, 0.06, r) });
+  }
+  // sostre de fusta, biga de les campanes (al llarg de Z) i dues bigues transversals
+  const by = B.beamY;
+  b.box('wood', { xMin: I.xMin, xMax: I.xMax, yMin: 10.22, yMax: 10.4, zMin: I.zMin, zMax: I.zMax }, 0x4a3f38);
+  b.box('wood', { xMin: -5.42, xMax: -5.18, yMin: by, yMax: 10.22, zMin: I.zMin, zMax: I.zMax }, TIMBER);
+  for (const zc of [-12.3, -9.7]) b.box('wood', { xMin: I.xMin, xMax: I.xMax, yMin: 10.02, yMax: 10.22, zMin: zc - 0.1, zMax: zc + 0.1 }, TIMBER);
+  // taques de llum blava a les voltes de l'escala, sota cada lanceta (la llum de lluna entra per les obertures)
+  for (const y of BEL_LANCET_Y) for (const face of [90, 180, 270]) {
+    let best = null;
+    for (let k = -3; k <= 3; k++) { const th = face + 360 * k; const h = stairH(th); if (h !== null && h <= y - 0.4 && h >= y - 1.6 && (best === null || h > best.h)) best = { th, h }; }
+    if (!best) continue;
+    const a = deg(best.th); const g = new THREE.PlaneGeometry(0.5, 0.8).rotateX(-Math.PI / 2);
+    b.add('moonPatch', g, S.cx + midR * Math.cos(a), best.h + 0.0, S.cz + midR * Math.sin(a), { rotY: -a });
+  }
+  b.finish();
+
+  // ---- campanes (grups dinàmics que giren al voltant de la biga, eix Z) ----
+  const bells = []; const ropes = [];
+  const bronze = [0x9a7a3a, 0x8a6a30, 0xa88444];
+  B.bells.forEach((def, i) => {
+    const g = makeGroup(`Bell-${def.id}`, `BEL-BELL-${def.id}`); g.position.set(def.pos.x, by, def.pos.z);
+    const bb = new Builder(g, mats, 9710 + i);
+    const R0 = def.radius; const H = def.height;
+    const prof = [[0.001, 0], [R0 * 0.28, -0.02], [R0 * 0.34, -H * 0.15], [R0 * 0.5, -H * 0.45], [R0 * 0.74, -H * 0.76], [R0 * 0.97, -H * 0.95], [R0 * 1.06, -H], [R0 * 0.92, -H * 1.0], [R0 * 0.86, -H * 0.9], [R0 * 0.5, -H * 0.62], [R0 * 0.001, -H * 0.5]].map(([x, y]) => new THREE.Vector2(x, y));
+    bb.add('plainD', new THREE.LatheGeometry(prof, 12), 0, 0, 0, { tint: bronze[i] });
+    bb.box('wood', { xMin: -R0 * 0.9, xMax: R0 * 0.9, yMin: 0, yMax: 0.1, zMin: -0.08, zMax: 0.08 }, TIMBER);   // jou de fusta
+    bb.add('plainD', new THREE.SphereGeometry(Math.max(0.04, R0 * 0.18), 6, 4), 0, -H * 0.88, 0, { tint: 0x3a3430 });  // batall
+    bb.finish(); markDynamic(g); root.add(g); bells.push(g);
+    // corda: tram horitzontal fix (jou → politja) i tram vertical mòbil (de la politja a baix)
+    const rb = new Builder(makeGroup(`RopeTop-${def.id}`, 'BEL-ROPE-TOP'), mats, 9720 + i);
+    const x0 = def.pos.x + R0 * 0.9; const x1 = def.rope.x;
+    rb.box('plain', { xMin: x0, xMax: x1, yMin: by + 0.04, yMax: by + 0.07, zMin: def.rope.z - 0.015, zMax: def.rope.z + 0.015 }, 0x6e5a3a);
+    rb.add('plainD', new THREE.CylinderGeometry(0.09, 0.09, 0.05, 8).rotateX(Math.PI / 2), x1, by + 0.055, def.rope.z, { tint: 0x3a3430 });   // politja
+    rb.finish(); root.add(rb.group);
+    const rg = makeGroup(`Rope-${def.id}`, `BEL-ROPE-${def.id}`); rg.position.set(def.rope.x, by, def.rope.z);
+    const vb = new Builder(rg, mats, 9730 + i); const rl = by - B.ropeBottomY;
+    vb.box('plain', { xMin: -0.018, xMax: 0.018, yMin: -rl, yMax: 0.055, zMin: -0.018, zMax: 0.018 }, 0x7a6440);
+    vb.add('plainD', new THREE.SphereGeometry(0.06, 6, 4), 0, -rl - 0.02, 0, { tint: 0x5a4630 });   // nus al capdamunt de la corda
+    vb.finish(); markDynamic(rg); root.add(rg); ropes.push(rg);
+  });
+
+  // ---- fulla de la porta (pivot a la frontissa; a 0 rad tancada: l'extrem lliure apunta cap al nord, −Z) ----
+  const leaf = makeGroup('BelfryDoorLeaf', 'BEL-LEAF'); leaf.position.set(D.hinge.x, 0, D.hinge.z);
+  const lb = new Builder(leaf, mats, 9740);
+  const lw = D.leafLength; const leafGeo = gothicGeometry(lw, D.height - 0.65, 0.5, 0.08).rotateY(Math.PI / 2);   // forma x → −z, gruix → +x
+  leafGeo.translate(-0.04, 0.03, -lw / 2);
+  lb.add('doorOak', leafGeo, 0, 0, 0, { tint: 0xa89480 });
+  for (const yy of [0.5, 1.2, 1.85]) lb.add('plainD', new THREE.BoxGeometry(0.02, 0.1, lw - 0.06).translate(0.045, yy, -lw / 2), 0, 0, 0, { tint: 0x2e2e34 });   // cintes de ferro
+  const lk = D.lock; const bz = D.lock.z - D.hinge.z;   // el pany, al costat lliure
+  lb.add('plainD', new THREE.BoxGeometry(0.03, 0.3, 0.26).translate(0.06, lk.y, bz), 0, 0, 0, { tint: 0x7a5e2e });                    // placa de bronze
+  for (const [dz, dy] of [[-0.065, -0.05], [0.065, -0.05], [0, 0.07]]) lb.add('plainD', new THREE.ConeGeometry(0.04, 0.085, 8), 0.095, lk.y + dy, bz + dz, { tint: 0xc09448 });   // tres campanes en relleu
+  lb.add('plainD', new THREE.BoxGeometry(0.02, 0.05, 0.015).translate(0.08, lk.y - 0.12, bz), 0, 0, 0, { tint: 0x14120e });            // forat de la clau
+  lb.finish(); markDynamic(leaf); root.add(leaf);
+
+  // ---- llum de la sala (UNA llum puntual, només s'encén amb el jugador a prop: main.js) ----
+  const L = B.light; const light = new THREE.PointLight(L.color, 0, L.distance, L.decay);
+  markDynamic(light); light.name = 'BelfryLight'; light.position.set(S.cx, L.y, S.cz); root.add(light);
+
+  let tris = 0; root.traverse((o) => { if (o.isMesh) { const g = o.geometry; tris += g.index ? g.index.count / 3 : g.getAttribute('position').count / 3; } });
+  parent.add(root);
+  return {
+    group: root, leaf, light, bells, ropes,
+    setDoorAngle(a) { leaf.rotation.y = -a; },
+    setBellAngle(i, a) { bells[i].rotation.z = a; },
+    setRopePull(i, p) { ropes[i].position.y = by - 0.25 * Math.max(0, Math.min(1, p)); },
+    stats: { meshes: (() => { let n = 0; root.traverse((o) => { if (o.isMesh) n += 1; }); return n; })(), triangles: Math.round(tris) },
+    dispose() { disposables.forEach((d) => d.dispose()); root.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); root.removeFromParent(); },
+  };
 }
 
 function buildBuildings(mats, parent) {
@@ -3835,6 +4024,9 @@ function cemMausoleum(b, item) {
   b.box('stone', { xMin: cx - 1.0, xMax: cx + 1.0, yMin: 0, yMax: 0.2, zMin: z1, zMax: z1 + 0.14 }, jit(CEM_STONE_D[2], 0.05, r));             // un únic graó
   cemEngrave(b, 'bell', { x: cx - 1.75, z: z1, facing: 'south', w: 0.3, h: 0.34, y: 1.9, d: 0 });
   cemEngrave(b, 'moon', { x: cx + 1.75, z: z1, facing: 'south', w: 0.3, h: 0.34, y: 1.9, d: 0 });
+  // Fase F — PISTA DEL CAMPANAR: tres campanes gravades a la dreta de la porta (sota la lluna), d'esquerra a dreta mirant la façana: PETITA, GRAN, MITJANA.
+  // Sense text. Franja lliure: entre el marc de la porta (x = cx+0,84) i el pilar (x = cx+2,1), sota la lluna (y 1,73–2,07) i per sobre de la molsa (y < 0,7).
+  for (const [dx, w, h] of [[1.1, 0.15, 0.17], [1.45, 0.33, 0.37], [1.8, 0.23, 0.26]]) cemEngrave(b, 'bell', { x: cx + dx, z: z1, facing: 'south', w, h, y: 1.2, d: 0 });
   for (const [sx, sz] of [[x0, cz - 0.4], [x1, cz + 0.4]]) { // finestrons foscos laterals (clots buits)
     const g = new THREE.PlaneGeometry(0.2, 0.7).rotateY(sx === x0 ? -Math.PI / 2 : Math.PI / 2);
     b.add('plainD', g, sx + (sx === x0 ? -0.012 : 0.012), 1.9, sz, { tint: 0x060608 });
@@ -4926,6 +5118,7 @@ export function buildVillage(scene, options = {}) {
 
   scene.add(root);
   const mausoleum = opts.cemetery ? buildMausoleumMechanism(mats, scene) : null; // Fase E: FORA de `root` (grup propi, com la cripta): no compta al poble ni al cementiri
+  const belfry = opts.belfry !== false ? buildBelfryInterior(mats, scene) : null; // Fase F: interior del campanar, FORA de `root` (no compta a stats.triangles del poble)
   const crypt = opts.cemetery && opts.crypt !== false ? buildCrypt(mats, scene) : null; // Fase D.3: FORA de `root` (no compta a stats.triangles)
 
   // Tot és estàtic: calculem les matrius una vegada i deixem d'actualitzar-les.
@@ -4948,10 +5141,12 @@ export function buildVillage(scene, options = {}) {
     pointLights: lanternLights.length,
     cemetery: { meshes: cemMeshes, triangles: Math.round(cemTriangles) }, // Fase D.2 (inclosos al total)
     crypt: crypt ? crypt.stats : null,                                      // Fase D.3 (NO inclosos al total: grup propi)
+    belfry: belfry ? belfry.stats : null,                                   // Fase F (NO inclosos al total: grup propi)
   };
 
   function dispose() {
     if (crypt) crypt.dispose();
+    if (belfry) belfry.dispose();
     if (mausoleum) { mausoleum.group.removeFromParent(); mausoleum.dispose(); }
     root.removeFromParent();
     root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -4967,5 +5162,5 @@ export function buildVillage(scene, options = {}) {
     setContainerProgress: furniture.handles.setContainer,
     setKeyVisible: furniture.handles.setKeyVisible,
   };
-  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, crypt, cemeteryGate, mausoleum, dispose };
+  return { root, lanternLights, interiorLights: [...(churchLight ? [churchLight] : []), ...houseLights], stats, doors: doorHandles, puzzle, crypt, cemeteryGate, mausoleum, belfry, dispose };
 }

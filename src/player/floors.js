@@ -21,6 +21,7 @@ export function createFloors(def) {
   const slabs = def.slabs || [];
   const split = def.levelSplit;
   const splitDown = def.levelSplitDown; // undefined = no hi ha nivell −1 (comportament de les fases anteriors)
+  const surfaces = def.surfaces || []; // (Fase F) superfícies contínues amb heightAt(x, z, level, prevY) → alçada o null (escala de cargol del campanar)
 
   // Alçada del terra de l'escala a la posició (x, z) (només si és dins del seu rectangle).
   function stairHeight(st, x, z) {
@@ -38,7 +39,8 @@ export function createFloors(def) {
       return null;
     },
     // Alçada dels peus (m) a (x, z) per a un jugador del nivell `level`.
-    heightAt(x, z, level) {
+    heightAt(x, z, level, prevY) {
+      for (const sf of surfaces) { const h = sf.heightAt(x, z, level, prevY); if (h !== null && h !== undefined) return h; }
       for (const st of stairs) if (inRect(x, z, st.rect)) return stairHeight(st, x, z);
       for (const sl of slabs) {
         if ((sl.level === undefined ? 1 : sl.level) === level && inRect(x, z, sl.rect) && !sl.holes.some((h) => inRect(x, z, h))) return sl.y;
@@ -48,8 +50,8 @@ export function createFloors(def) {
     // Nivell que correspon a una alçada dels peus.
     levelFor(y) { return y > split ? 1 : (splitDown !== undefined && y < splitDown ? -1 : 0); },
     // Un pas de moviment: retorna { y, level } per a la nova posició (x, z) venint del nivell `level`.
-    resolve(x, z, level) {
-      const y = api.heightAt(x, z, level);
+    resolve(x, z, level, prevY) {
+      const y = api.heightAt(x, z, level, prevY);
       return { y, level: api.levelFor(y) };
     },
   };

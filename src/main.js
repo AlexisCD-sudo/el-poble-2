@@ -12,6 +12,8 @@ import { installTheme, FONT_PIXEL, TEXT_MIN, PIXEL_GRID } from './ui/theme.js';
 import { createTitleScreen, GAME_TITLE } from './ui/titleScreen.js';
 import { createMausoleum } from './player/mausoleum.js'; // Fase E: mausoleu (porta amb KEY-C, trencaclosques de lloses, cambra i clau)
 import { MAUSOLEUM, SLAB_PUZZLE } from './world/mausoleumData.js';
+import { createBelfry } from './player/belfry.js'; // Fase F: campanar (porta amb KEY-BELLS, escala de cargol, tres campanes)
+import { BELFRY } from './world/belfryData.js';
 import { createCemeteryGate } from './player/cemeteryGate.js'; // Fase D.4: reixa del cementiri (s'obre amb KEY-C)
 import { createNoteView } from './ui/noteView.js';
 import { createCryptSounds } from './audio/cryptSounds.js';
@@ -406,6 +408,8 @@ const cryptAccess = createCryptAccess(colliders, CRYPT);
 const cemeteryGate = createCemeteryGate(colliders, CEM_GATE, CEM_GATE_MECH);
 // Fase E: el bloc sòlid del mausoleu (layout.js, intacte) se substitueix per parets, porta i envà; la porta s'obre amb KEY-C.
 const mausoleum = createMausoleum(colliders, MAUSOLEUM, SLAB_PUZZLE);
+// Fase F: el bloc sòlid del campanar (CH-T, layout.js intacte) se substitueix per parets i escala; la paret oest de la nau (CH-N-W) es parteix per deixar el pas de la porta.
+const belfry = createBelfry(colliders, BELFRY);
 
 // Porta física de l'església (D1): dues fulles que giren. Les seves col·lisions (segments)
 // s'afegeixen a la mateixa llista i es MOUEN amb les fulles; doors.js en calcula l'estat.
@@ -431,15 +435,15 @@ function syncHouseDoors() { // només toca la geometria quan l'angle ha canviat
 syncHouseDoors();
 
 // Terra i escala de la casa C (Fase C): l'alçada dels peus depèn de la posició i del nivell (src/player/floors.js).
-const floors = createFloors({ ...FLOORS, slabs: [...FLOORS.slabs, ...CRYPT_FLOORS.slabs], stairs: [...FLOORS.stairs, ...CRYPT_FLOORS.stairs], levelSplitDown: CRYPT_FLOORS.levelSplitDown });
+const floors = createFloors({ ...FLOORS, slabs: [...FLOORS.slabs, ...CRYPT_FLOORS.slabs], stairs: [...FLOORS.stairs, ...CRYPT_FLOORS.stairs], levelSplitDown: CRYPT_FLOORS.levelSplitDown, surfaces: [belfry.surface] });   // Fase F: l'escala de cargol del campanar és una superfície contínua
 let playerLevel = 0;      // 0 = planta baixa, 1 = pis superior, −1 = cripta (Fase D.3)
 let feetY = 0;            // alçada dels peus (la càmera és a feetY + EYE_HEIGHT, suavitzada)
 let eyeY = EYE_HEIGHT;
 
 // Línia de visió de les portes de casa: només obstacles massissos (parets, escales), no els mobles baixos.
-const doorOccluders = buildColliders({ BUILDINGS, WALLS, PROPS: [], FURNITURE: [], STAIRS });
+const doorOccluders = buildColliders({ BUILDINGS, WALLS, PROPS: [], FURNITURE: [], STAIRS }).filter((c) => c.id !== 'CH-T'); // Fase F: el campanar ja és buit (les cordes s'han de poder veure des de dins)
 const cryptOccluders = buildColliders({ BUILDINGS: [], WALLS: [], PROPS: [], CRYPT_WALLS }).filter((c) => !c.id.startsWith('CH-N-B-')); // les peces de CH-N-B no són obstacles de visió
-const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS, crypt: { def: CRYPT, occluders: cryptOccluders }, cemeteryGate: { gate: cemeteryGate, def: CEM_GATE, mech: CEM_GATE_MECH }, mausoleum: { mau: mausoleum, occluders: mausoleum.colliders.filter((c) => c.id !== 'MAU-PEDESTAL' && c.id !== 'MAU-LEAF') } });
+const gameplay = createGameplay({ KEYS, SECRET_DOOR, churchDoor, houseDoors, occluders: doorOccluders, playerRadius: PLAYER_RADIUS, crypt: { def: CRYPT, occluders: cryptOccluders }, cemeteryGate: { gate: cemeteryGate, def: CEM_GATE, mech: CEM_GATE_MECH }, mausoleum: { mau: mausoleum, occluders: mausoleum.colliders.filter((c) => c.id !== 'MAU-PEDESTAL' && c.id !== 'MAU-LEAF') }, belfry: { bel: belfry } });
 const cryptVisual = village.crypt;            // geometria i animacions de la cripta (grup propi, fora del poble)
 const cryptSounds = createCryptSounds();
 const noteView = createNoteView(CRYPT);
@@ -595,6 +599,28 @@ function mausoleumFrame(dt, seconds) {   // llum interior, sons i esdeveniments
   mauLightZ += (tz - mauLightZ) * (1 - Math.exp(-3 * dt));
   if (mauVisual) { mauVisual.light.intensity = mauLightT; mauVisual.light.position.set(MAUSOLEUM.light.hall.x, MAUSOLEUM.light.hall.y, mauLightZ); }
   for (const ev of mausoleum.drainEvents()) if (MAU_SOUND[ev.type]) cryptSounds.play(MAU_SOUND[ev.type]);
+}
+// ---- Fase F: campanar (llum, campanes que oscil·len, cordes, sons) ----
+const belVisual = village.belfry; const belShown = { door: NaN }; const ropeT = [9, 9, 9];
+const BEL_BELL_SOUND = { small: 'bellSmall', large: 'bellLarge', medium: 'bellMedium' };
+let belLightT = 0;
+function belfryFrame(dt, seconds) {
+  const px = camera.position.x; const pz = camera.position.z; const T = BELFRY.tower.interior;
+  for (const ev of belfry.drainEvents()) {   // sons (el gest de l'usuari és la tecla E: l'AudioContext ja es pot crear)
+    if (ev.type === 'doorOpen') cryptSounds.play('towerDoor');
+    else if (ev.type === 'ring') { ropeT[ev.index] = 0; cryptSounds.play('rope'); cryptSounds.play(BEL_BELL_SOUND[ev.bell]); if (!ev.correct && !ev.free) cryptSounds.play('wrong'); }
+    else if (ev.type === 'resonance') cryptSounds.play('resonance');
+  }
+  if (!belVisual) return;
+  const da = belfry.doorAngle(); if (da !== belShown.door) { belShown.door = da; belVisual.setDoorAngle(da); }
+  for (let i = 0; i < BELFRY.bells.length; i++) {
+    ropeT[i] += dt; belVisual.setRopePull(i, Math.max(0, 1 - ropeT[i] / 0.6));
+    belVisual.setBellAngle(i, belfry.bellAngle(i) + belfry.bellTremble(i) * 0.05 * Math.sin(seconds * 41 + i * 2));
+  }
+  const inside = px > T.xMin - 0.3 && px < T.xMax + 0.3 && pz > T.zMin - 0.3 && pz < T.zMax + 0.3;
+  const L = BELFRY.light; const want = inside ? L.intensity * (belfry.solved ? 1.35 : 1) * (0.95 + 0.05 * Math.sin(seconds * 5.1) + belfry.bellTremble(0) * 0.4) : 0;
+  belLightT += (want - belLightT) * Math.min(1, 6 * dt);
+  belVisual.light.intensity = belLightT; belVisual.light.color.setHex(belfry.solved ? 0xb9d2ff : L.color);
 }
 const cryptShown = { disc: [NaN, NaN, NaN], seal: -1, unlock: -1, lid: -1, key: null, sel: -2 };
 function syncCryptVisual(px, pz, dirX, dirZ, t) { // només toca la geometria quan l'estat ha canviat
@@ -821,8 +847,8 @@ function updatePlayer(dt) {
 
   // Terra: pla a y = 0 excepte a la casa C (escala i pis superior). L'alçada dels peus surt de la posició i el nivell;
   // els ulls hi van darrere, suavitzats (sense salts a cada graó).
-  const fl = floors.resolve(camera.position.x, camera.position.z, playerLevel);
-  feetY = fl.y; playerLevel = fl.level;
+  const fl = floors.resolve(camera.position.x, camera.position.z, playerLevel, feetY);   // feetY = alçada anterior: l'escala de cargol tria la volta on ja ets
+  feetY = fl.y; playerLevel = fl.level; belfry.setPlayerY(feetY);
   eyeY = smoothHeight(eyeY, feetY + EYE_HEIGHT, dt);
   camera.position.y = eyeY;
 
@@ -834,6 +860,7 @@ function updatePlayer(dt) {
   syncHouseDoors();
   syncCemeteryGateVisual();
   syncMausoleumVisual(dt); mausoleumFrame(dt, gameTime);
+  belfryFrame(dt, gameTime);
   cryptFrame(dt, gameTime);
   syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
   trackProgress();
@@ -862,6 +889,7 @@ const saveDefs = {
   documentIds: documents.knownIds(), noteDocumentId: DOCUMENT_IDS.symbolNote, zoneIds: mapData.zones.map((z) => z.id),
   levelSplit: FLOORS.levelSplit, levelSplitDown: CRYPT_FLOORS.levelSplitDown, mapLimit: MAP_LIMIT, CEM_AREA,
   MAUSOLEUM, SLAB_PUZZLE,   // Fase E
+  BELFRY,                   // Fase F
 };
 let storage = null;
 try { storage = window.localStorage; } catch (e) { storage = null; }
@@ -869,7 +897,7 @@ try { storage = window.localStorage; } catch (e) { storage = null; }
 function getPose() { return { x: camera.position.x, z: camera.position.z, yaw, pitch, level: playerLevel, feetY }; }
 function setPose(p) {
   camera.position.x = p.x; camera.position.z = p.z; yaw = p.yaw; pitch = p.pitch;
-  const fl = floors.resolve(p.x, p.z, p.level); feetY = fl.y; playerLevel = fl.level;   // l'alçada surt del terra, no de la dada desada
+  const fl = floors.resolve(p.x, p.z, p.level, p.feetY); feetY = fl.y; playerLevel = fl.level; belfry.setPlayerY(feetY);   // l'alçada surt del terra, no de la dada desada
   eyeY = feetY + EYE_HEIGHT; camera.position.y = eyeY;
   velocity.set(0, 0, 0);
   camera.rotation.y = yaw; camera.rotation.x = pitch;
@@ -883,7 +911,7 @@ const saveCtx = () => ({ gameplay, getPose, setPose, documents, mapProgress, col
 
 // Després de carregar: la geometria, la llum i el HUD es posen al dia sense fer avançar el temps de joc.
 function refreshWorld() {
-  syncDoorVisual(); syncPuzzleVisual(); syncHouseDoors(); syncCemeteryGateVisual(); syncMausoleumVisual(0);
+  syncDoorVisual(); syncPuzzleVisual(); syncHouseDoors(); syncCemeteryGateVisual(); syncMausoleumVisual(0); belfryFrame(0, gameTime);
   cryptFrame(0, gameTime);
   syncCryptVisual(camera.position.x, camera.position.z, -Math.sin(yaw), -Math.cos(yaw));
   trackProgress(); updateHud();
@@ -918,7 +946,7 @@ const pauseMenu = createPauseMenu({
   actions: { resume: () => pause.resume(), save: doSave, load: doLoad },
 });
 // Eina de depuració per a proves en navegador (consola: window.__forgottenVillage); el joc no la fa servir
-window.__forgottenVillage = { pause, documents, mausoleum, slab, getPose, setPose, refreshWorld, doSave, doLoad, gameplay, mapProgress, get gameTime() { return gameTime; } };
+window.__forgottenVillage = { pause, documents, mausoleum, belfry, slab, getPose, setPose, refreshWorld, doSave, doLoad, gameplay, mapProgress, get gameTime() { return gameTime; } };
 
 // -----------------------------------------------------
 // 11. REDIMENSIONAT DE LA FINESTRA

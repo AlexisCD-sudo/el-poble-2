@@ -53,7 +53,7 @@ export function canSave(ctx) {
 }
 
 // ---------------------------------------------------------------------
-// VALIDACIÓ. defs = { KEYS, CRYPT, SECRET_DOOR, houseDoorIds, churchLimits:{min,max} (rad), documentIds, noteDocumentId, zoneIds, levelSplit, levelSplitDown, mapLimit, CEM_AREA (opcional) }
+// VALIDACIÓ. defs = { KEYS, CRYPT, SECRET_DOOR, BELFRY (Fase F, opcional: porta i campanes del campanar), houseDoorIds, churchLimits:{min,max} (rad), documentIds, noteDocumentId, zoneIds, levelSplit, levelSplitDown, mapLimit, CEM_AREA (opcional) }
 // Retorna { ok, errors[] } sense modificar res.
 // ---------------------------------------------------------------------
 export function validateSave(data, defs) {
@@ -135,6 +135,10 @@ export function validateSave(data, defs) {
     else if (!reachableFrom(defs.SLAB_PUZZLE.start, pz.cells)) { bad('tauler de lloses impossible (no s\'hi arriba des de l\'inicial)'); mauOk = false; }
   }
 
+  // campanar (Fase F): camp opcional (partides antigues = porta tancada, campanes sense resoldre). La seqüència parcial i les oscil·lacions no es desen.
+  const bel = st.belfry; let belOk = true;
+  if (bel !== undefined && defs.BELFRY && (!isObj(bel) || typeof bel.doorOpen !== 'boolean' || typeof bel.solved !== 'boolean')) { bad('campanar invàlid'); belOk = false; }
+
   // coherència entre peces (només si l'estructura bàsica és correcta)
   if (errors.length === 0) {
     const inv = new Set(st.inventory); const taken = new Set(st.taken);
@@ -161,6 +165,13 @@ export function validateSave(data, defs) {
       const I = defs.MAUSOLEUM.interior;
       if (!mau.doorOpen && pl && pl.x > I.xMin && pl.x < I.xMax && pl.z > I.zMin && pl.z < I.zMax) errors.push('jugador dins el mausoleu amb la porta tancada');
     } else if (mau === undefined && defs.MAUSOLEUM && inv.has(defs.MAUSOLEUM.key.id)) errors.push('clau del mausoleu sense estat del mausoleu');
+    if (defs.BELFRY && belOk) {
+      const doorOpen = !!(bel && bel.doorOpen); const solved = !!(bel && bel.solved); const keyId = defs.MAUSOLEUM ? defs.MAUSOLEUM.key.id : defs.BELFRY.door.keyId;
+      if (doorOpen && !inv.has(keyId)) errors.push('campanar obert sense KEY-BELLS a l\'inventari');
+      if (solved && !doorOpen) errors.push('campanes resoltes amb la porta del campanar tancada');
+      const T = defs.BELFRY.tower.interior;
+      if (!doorOpen && pl && pl.x > T.xMin && pl.x < T.xMax && pl.z > T.zMin && pl.z < T.zMax) errors.push('jugador dins el campanar amb la porta tancada');
+    }
     const crypticProgress = cr.solved || cr.keyTaken || cr.sarc !== 'locked' || cr.discTurns.some((t) => t > 0);
     if (crypticProgress && sd.state !== 'open') errors.push('progrés a la cripta amb la porta secreta tancada');
     if (pl && pl.level === -1 && sd.state !== 'open') errors.push('jugador a la cripta amb la porta secreta tancada');

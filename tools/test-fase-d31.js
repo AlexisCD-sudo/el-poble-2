@@ -496,7 +496,7 @@ test('I1. Els mòduls nous no depenen del DOM ni de Three.js (es poden provar de
   for (const f of ['game/pauseState.js', 'game/saveGame.js', 'player/documents.js', 'world/mapData.js', 'ui/menuModel.js']) { const s = read(`../src/${f}`); expect(!/\b(document|window)\.(getElementById|createElement|body|addEventListener|localStorage)/.test(s) && !/from 'three'/.test(s), `${f} depèn del DOM/Three`); }
 });
 test('I2. Estadístiques de l\'escena del poble sota el pressupost (< 60.000 triangles) i el llit no n\'afegeix més de 400', () => {
-  const sc = new THREE.Scene(); const v = buildVillage(sc, { cemetery: false }); expect(v.stats.triangles === 41092, `${v.stats.triangles}`); const full = v.stats.triangles; v.dispose();
+  const sc = new THREE.Scene(); const v = buildVillage(sc, { cemetery: false }); expect(v.stats.triangles >= 41092 && v.stats.triangles <= 41092 + 6000, `${v.stats.triangles}`); /* Fase F: el campanar passa de bloc massís a paret buida amb obertures reals i marcs: la línia base creix de forma acotada (pressupost 6 000 triangles; malles idèntiques). */ const full = v.stats.triangles; v.dispose();
   const sc2 = new THREE.Scene(); const v2 = buildVillage(sc2); expect(v2.stats.triangles < 60000 && v2.stats.triangles > full, `${v2.stats.triangles}`);
 });
 

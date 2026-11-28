@@ -33,6 +33,11 @@ export function createCryptSounds() {
     f.type = type; f.frequency.setValueAtTime(f0, t0); f.frequency.linearRampToValueAtTime(f1, t0 + seconds);
     env(g, t0, attack, seconds * 0.5, seconds * 0.5 - attack, peak); src.connect(f); f.connect(g); g.connect(master); src.start(t0); src.stop(t0 + seconds);
   }
+  // Campana: parcials no harmònics (to amb brillantor de bronze); cada parcial decau més ràpid com més aguda.
+  function bell(f, dur, peak, t) {
+    [[1, 1, 1], [2, 0.5, 0.7], [2.76, 0.36, 0.5], [5.4, 0.2, 0.3], [8.93, 0.1, 0.22]].forEach(([m, a, d]) => tone(f * m, t, dur * d, peak * a, 'sine'));
+    filtered(0.06, t, 'highpass', 2500, 2500, peak * 0.5, 0.002);
+  }
   const SOUNDS = {
     disc(t) { filtered(0.18, t, 'lowpass', 900, 200, 0.5, 0.005); tone(110, t, 0.22, 0.35, 'triangle', 70); },       // clac de pedra
     solved(t) { tone(55, t, 1.6, 0.5, 'sine', 41); tone(82, t + 0.05, 1.2, 0.25, 'sine', 55); filtered(1.2, t, 'lowpass', 400, 120, 0.3); },
@@ -45,6 +50,18 @@ export function createCryptSounds() {
     glow(t) { [330, 392, 440, 523, 587, 659, 784].forEach((f, i) => tone(f, t + i * 0.45, 1.0, 0.11, 'sine')); },     // un to per llosa que s'il·lumina (0,45 s cadascun)
     stone(t) { filtered(5, t, 'lowpass', 270, 70, 0.85, 0.5); tone(34, t, 5, 0.5, 'sine', 27); filtered(1.4, t + 0.1, 'bandpass', 600, 220, 0.3, 0.05); },   // llosa enorme que s'enfonsa
     note(t) { filtered(0.25, t, 'bandpass', 3000, 1800, 0.2, 0.02); },                                               // paper
+    // --- Fase F: campanar ---
+    towerDoor(t) { filtered(2.4, t, 'bandpass', 380, 150, 0.4, 0.3); tone(64, t, 2.4, 0.12, 'sawtooth', 48); tone(1500, t + 0.05, 0.3, 0.06, 'sine'); },   // roure vell i un pany de bronze
+    rope(t) { filtered(0.35, t, 'bandpass', 500, 320, 0.25, 0.03); },                                                // corda que s'estira
+    bellSmall(t) { bell(880, 3.4, 0.2, t); },                                                                          // petita: aguda i clara
+    bellLarge(t) { bell(196, 7, 0.42, t); tone(98, t, 6, 0.2, 'sine'); },                                              // gran: greu i llarga
+    bellMedium(t) { bell(392, 5, 0.3, t); },                                                                           // mitjana: to mitjà
+    wrong(t) { tone(247, t, 1.1, 0.12, 'triangle', 233); filtered(0.5, t, 'lowpass', 600, 150, 0.2, 0.02); },        // so apagat: fora de to
+    resonance(t) {                                                                                                     // ressonància profunda que travessa el poble
+      bell(196, 9, 0.35, t); bell(392, 8, 0.2, t + 0.05); bell(880, 7, 0.12, t + 0.1);
+      tone(49, t, 9, 0.45, 'sine', 44); tone(73.5, t + 0.2, 8.5, 0.25, 'sine', 66); tone(98, t + 0.4, 8, 0.2, 'sine');
+      filtered(9, t, 'lowpass', 220, 70, 0.4, 1.5);
+    },
   };
   return {
     play(name) {

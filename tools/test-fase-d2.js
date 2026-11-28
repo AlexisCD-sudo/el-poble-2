@@ -222,7 +222,7 @@ const scene = new THREE.Scene(); const v = buildVillage(scene); const root = sce
 const find = (name) => { let r = null; scene.traverse((o) => { if (o.name === name && !r) r = o; }); return r; };
 const sceneWith = new THREE.Scene(); const vNo = buildVillage(sceneWith, { cemetery: false });
 test('Triangles: el poble sol té 41.092 (base D.4: base D.3.1 + forat gòtic de la nau, sense pal de cartell ni plafó de foscor); amb el cementiri < 60.000 i el cementiri ≤ 20.000', () => {
-  expect(vNo.stats.triangles === 41092 && vNo.stats.meshes === 150, `poble sol: ${vNo.stats.triangles} triangles, ${vNo.stats.meshes} malles`);
+  expect(vNo.stats.triangles >= 41092 && vNo.stats.triangles <= 41092 + 6000 && vNo.stats.meshes === 150, `poble sol: ${vNo.stats.triangles} triangles, ${vNo.stats.meshes} malles`); // Fase F: el campanar passa de bloc massís a paret buida amb obertures reals i marcs: la línia base creix de forma acotada (pressupost 6 000 triangles; malles idèntiques).
   expect(v.stats.triangles < 60000, `${v.stats.triangles} triangles`);
   expect(v.stats.cemetery.triangles <= 20000 && v.stats.cemetery.meshes <= 40, `cementiri: ${JSON.stringify(v.stats.cemetery)}`);
   console.log(`      (total ${v.stats.triangles} triangles, ${v.stats.meshes} malles; cementiri ${v.stats.cemetery.triangles} triangles, ${v.stats.cemetery.meshes} malles)`);

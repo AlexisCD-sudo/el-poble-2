@@ -48,7 +48,7 @@ export const MAUSOLEUM = {
   // Clau de bronze (NO és a KEYS, ni és KEY-C: id propi). El símbol 'bells3' és al mapa de símbols de src/world/cryptSymbols.js.
   key: {
     id: 'KEY-BELLS', name: 'Clau de les tres campanes', material: 'bronze', symbol: 'bells3',
-    description: 'Una clau de bronze, greu i freda, amb tres campanes petites gravades a l\'anella. Reposava sobre un pedestal que ningú no havia tocat en segles. Cap porta del poble no la reclama encara: la guardes per a quan en trobis una.',
+    description: 'Una clau de bronze, greu i freda, amb tres campanes petites gravades a l\'anella. Reposava sobre un pedestal que ningú no havia tocat en segles. A l\'església, una porta baixa sota el campanar sembla esperar-la.',
   },
 };
 
