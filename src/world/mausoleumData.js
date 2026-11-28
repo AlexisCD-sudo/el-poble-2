@@ -87,3 +87,14 @@ export const SLAB_PUZZLE = {
   symbols: ['bell', 'moon', 'cross'],
 };
 export const SLAB_MECH = { litSeconds: 0.45 };
+
+// MURAL de la paret EST de la sala (just davant del tauler): el mateix quadre 3 × 3, amb els símbols gravats al seu lloc i el recorregut dels
+// canals mig esborrat pel temps. És una pista vaga, no una instrucció: només és una de les solucions possibles (una prova comprova que `board` ho és).
+// `path` = caselles (fila * 3 + columna, com al tauler) per on passa el recorregut, de l'entrada a la sortida; `symbols` = símbol gravat a cada casella.
+export const SLAB_MURAL = {
+  id: 'MAU-MURAL', zc: MAUSOLEUM.board.zc, yc: MAUSOLEUM.board.yc, wallX: MAUSOLEUM.interior.xMax,
+  board: [5, 0, 1, -1, 3, 2, 7, 4, 6],
+  path: [0, 1, 2, 5, 4, 7, 8],
+  symbols: { 0: 'cross', 2: 'bell', 4: 'moon' },
+  erased: 0.5,                                                        // part dels camins gravats que ja s'ha esborrat (0..1)
+};

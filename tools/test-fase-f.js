@@ -359,7 +359,7 @@ if (!realThree) {
 } else {
   const { buildVillage } = await import('../src/world/village.js');
   const scene = new THREE.Scene(); const v = buildVillage(scene, {}); const find = (n) => { const out = []; scene.traverse((o) => { if (o.name === n) out.push(o); }); return out; };
-test('H1. El grup del campanar és FORA de root i disposa d’estadístiques pròpies', () => {
+  test('H1. El grup del campanar és FORA de root i disposa d’estadístiques pròpies', () => {
   expect(v.belfry && v.belfry.stats, 'stats');
   expect(v.belfry.stats.triangles > 0, 'triangles del campanar');
 });

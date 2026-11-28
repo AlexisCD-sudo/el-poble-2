@@ -747,6 +747,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (slab.state !== 'off' && document.pointerLockElement === renderer.domElement) {   // Fase E: mode tauler
     if (e.code === 'KeyE' && !e.repeat) leaveSlabMode(false);
+    else if (e.code === 'KeyR' && !e.repeat && slab.state === 'on' && !slab.drag && !mausoleum.puzzle.solved) { mausoleum.puzzle.reset(); cryptSounds.play('slab'); }   // les lloses tornen lliscant soles: syncMausoleumVisual les mou cap a la seva casella   // Fase E.2: R reinicia el tauler
     else if (slab.state === 'on' && !slab.drag && !mausoleum.puzzle.solved && /^(Arrow|Key[WASD])/.test(e.code) && slabKeyMove(e.code)) e.preventDefault();
     return;
   }
@@ -793,7 +794,7 @@ const rightDir = new THREE.Vector3();
 
 function updateHud() { // indicació d'E, missatge i inventari
   const locked = document.pointerLockElement === renderer.domElement;
-  const hintText = locked && slab.state === 'on' ? (mausoleum.puzzle.solved ? '' : 'Arrossega les lloses al forat - E - sortir') : locked && slab.state !== 'off' ? '' : locked ? (gameplay.prompt || gameplay.hint(camera.position.x, camera.position.z)) : ''; // sense objectiu: indicació discreta de l'altar (D.3)
+  const hintText = locked && slab.state === 'on' ? (mausoleum.puzzle.solved ? '' : 'Arrossega les lloses al forat - R - reiniciar - E - sortir') : locked && slab.state !== 'off' ? '' : locked ? (gameplay.prompt || gameplay.hint(camera.position.x, camera.position.z)) : ''; // sense objectiu: indicació discreta de l'altar (D.3)
   if (doorHint.textContent !== hintText) { doorHint.textContent = hintText; doorHint.style.display = hintText ? 'block' : 'none'; }
   const msgText = gameplay.message;
   if (messageBox.textContent !== msgText) { messageBox.textContent = msgText; messageBox.style.display = msgText ? 'block' : 'none'; }

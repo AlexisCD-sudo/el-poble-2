@@ -74,7 +74,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { LAYOUT_META, PLAZA, BUILDINGS, WALLS, PROPS, DOORS, LIGHTS, FURNITURE, SECRET_DOOR, KEYS, CANDLES, COBWEBS, INTERIOR_LIGHTS, FLOORS, STAIRS, GATE, FOREST, CEM_AREA, CEM_WALLS, CEM_GATE, CEM_REAR_GATE, CEM_PATHS, CEM_PROPS, CRYPT, CRYPT_WALLS, CRYPT_PROPS } from './layout.js';
 import { SYMBOL_CELLS, SYMBOL_ATLAS_SIZE, paintSymbols } from './cryptSymbols.js';
 import { WORLD_TEXT } from './worldText.js';   // Fase D.6: textos del món en Pixel Monastery Script (mapes de bits generats)
-import { MAUSOLEUM, SLAB_PUZZLE } from './mausoleumData.js';
+import { MAUSOLEUM, SLAB_PUZZLE, SLAB_MURAL } from './mausoleumData.js';
 import { BELFRY, holeSector, deg, stairTotalDeg } from './belfryData.js';   // Fase F: campanar buit, escala de cargol i sala de les campanes   // Fase E: interior del mausoleu, tauler de lloses i cambra
 import { SYMBOL_BITMAPS } from './cryptSymbols.js';
 
@@ -4613,6 +4613,35 @@ function paintSlabFace(px, w, h, tile, seed, glow) {
   }
 }
 
+// MURAL (Fase E.2): el mateix quadre 3 × 3, amb els símbols i el recorregut mig esborrats. Textura 72 × 72 (cel·la de 24 px, canal de 4 px).
+const MURAL_CELL = 24;
+function paintMural(px, w, h) {
+  const rnd = mulberry32(9410); const bw = Math.ceil(w / 3);
+  const blocks = []; for (let i = 0; i < bw * bw; i++) blocks.push(rnd());              // taques de desgast de 3 × 3 px
+  const P = SLAB_MURAL; const OPP = { N: 'S', S: 'N', E: 'W', W: 'E' }; const DIR = { '-3': 'N', '3': 'S', '-1': 'W', '1': 'E' };
+  const sides = new Map();                                                              // casella → costats oberts (de l'entrada a la sortida)
+  P.path.forEach((c, k) => {
+    const set = new Set(); set.add(k === 0 ? 'W' : OPP[DIR[String(c - P.path[k - 1])]]); set.add(k === P.path.length - 1 ? 'E' : DIR[String(P.path[k + 1] - c)]); sides.set(c, set);
+  });
+  const c0 = 10; const c1 = 13; const wear = (x, y) => blocks[Math.floor(y / 3) * bw + Math.floor(x / 3)];
+  const sc = 2;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const cx = Math.floor(x / MURAL_CELL); const cy = Math.floor(y / MURAL_CELL); const cell = cy * 3 + cx; const lx = x % MURAL_CELL; const ly = y % MURAL_CELL;
+    const n = Math.floor(rnd() * 3) - 1; px(x, y, 0x64686f + n * 0x040404);
+    if (lx === 0 || ly === 0 || x === w - 1 || y === h - 1) { if (wear(x, y) > 0.2) px(x, y, 0x3a3d44); }                                                   // línies del quadre
+    const open = sides.get(cell);
+    if (open && wear(x, y) > P.erased) {
+      const inX = lx >= c0 && lx <= c1; const inY = ly >= c0 && ly <= c1;
+      if ((inX && inY) || (open.has('N') && inX && ly < c0) || (open.has('S') && inX && ly > c1) || (open.has('W') && inY && lx < c0) || (open.has('E') && inY && lx > c1)) px(x, y, 0x2a2c32);
+    }
+    const sym = P.symbols[cell]; const bmp = sym ? SYMBOL_BITMAPS[sym] : null;
+    if (bmp) {
+      const sw = bmp[0].length * sc; const sh = bmp.length * sc; const sx = Math.floor((MURAL_CELL - sw) / 2); const sy = Math.floor((MURAL_CELL - sh) / 2);
+      if (lx >= sx && lx < sx + sw && ly >= sy && ly < sy + sh && bmp[Math.floor((ly - sy) / sc)][Math.floor((lx - sx) / sc)] === '#' && wear(x, y) > 0.22) px(x, y, 0xa89c78);   // gravat quasi intacte
+    }
+  }
+}
+
 function buildMausoleumMechanism(mats, parent) {
   const M = MAUSOLEUM; const B = M.board; const D = M.door; const S = M.secret; const P = M.pedestal;
   const root = makeGroup('MausoleumMechanism', 'MAU-MECH'); const disposables = [];
@@ -4637,9 +4666,33 @@ function buildMausoleumMechanism(mats, parent) {
     [yc - half, yc + half, zc + half, zc + half + 0.1], [yc - half, yc + half, zc - half - 0.1, zc - half]]) sb.box('stone', { xMin: xw, xMax: xw + 0.11, yMin: y0, yMax: y1, zMin: z0, zMax: z1 }, dark);
   const chan = 0.19 * 0.95;   // amplada del canal (6/32 d'una llosa)
   const topY = yc + B.pitch; const botY = yc - B.pitch;           // fila 0 (dalt) i fila 2 (baix)
-  sb.box('stone', { xMin: xw + 0.02, xMax: xw + 0.06, yMin: topY - chan / 2, yMax: topY + chan / 2, zMin: zc + half, zMax: zc + half + 0.1 }, 0x14161a);   // entrada: a l'esquerra (sud) de la casella (0,0)
-  sb.box('stone', { xMin: xw + 0.02, xMax: xw + 0.06, yMin: botY - chan / 2, yMax: botY + chan / 2, zMin: zc - half - 0.1, zMax: zc - half }, 0x14161a);   // sortida: a la dreta (nord) de la casella (2,2)
+  // ENTRADA i SORTIDA (Fase E.2): abans eren a dins del gruix del marc i no es veien. Ara són solcs foscos SOBRE la cara del marc, damunt d'una placa de bronze,
+  // i continuen per la paret fins a la vora (el canal «entra» al tauler des del món). El solc fosc ha de destacar: placa clara + solc negre.
+  const fx = xw + 0.11;                                              // cara frontal del marc
+  const groove = (y, zA, zB) => {                                   // zA < zB
+    sb.box('stone', { xMin: fx, xMax: fx + 0.012, yMin: y - chan / 2 - 0.035, yMax: y + chan / 2 + 0.035, zMin: zA, zMax: zB }, 0x9a8456);        // placa de bronze
+    sb.box('stone', { xMin: fx, xMax: fx + 0.02, yMin: y - chan / 2, yMax: y + chan / 2, zMin: zA, zMax: zB }, 0x0b0c0f);                           // solc
+  };
+  groove(topY, zc + half, zc + half + 0.1);                          // entrada: a l'esquerra (sud) de la casella (0,0)
+  groove(botY, zc - half - 0.1, zc - half);                          // sortida: a la dreta (nord) de la casella (2,2)
+  for (const [y, zA, zB] of [[topY, zc + half + 0.1, zc + half + 0.38], [botY, zc - half - 0.38, zc - half - 0.1]]) {    // el solc continua per la paret
+    sb.box('stone', { xMin: xw, xMax: xw + 0.012, yMin: y - chan / 2 - 0.03, yMax: y + chan / 2 + 0.03, zMin: zA, zMax: zB }, 0x9a8456);
+    sb.box('stone', { xMin: xw, xMax: xw + 0.02, yMin: y - chan / 2, yMax: y + chan / 2, zMin: zA, zMax: zB }, 0x0b0c0f);
+  }
   sb.finish();
+
+  // ---- mural de la paret EST, just davant del tauler (Fase E.2): mateix quadre, símbols gravats, recorregut mig esborrat ----
+  const MU = SLAB_MURAL; const mb = new Builder(makeGroup('MausoleumMural', MU.id), mats, 9303 + 7); root.add(mb.group);
+  const xe = MU.wallX;
+  mb.box('stone', { xMin: xe - 0.04, xMax: xe, yMin: MU.yc - half, yMax: MU.yc + half, zMin: MU.zc - half, zMax: MU.zc + half }, 0x4a4d54);
+  for (const [y0, y1, z0, z1] of [[MU.yc + half, MU.yc + half + 0.1, MU.zc - half - 0.1, MU.zc + half + 0.1], [MU.yc - half - 0.1, MU.yc - half, MU.zc - half - 0.1, MU.zc + half + 0.1],
+    [MU.yc - half, MU.yc + half, MU.zc + half, MU.zc + half + 0.1], [MU.yc - half, MU.yc + half, MU.zc - half - 0.1, MU.zc - half]]) mb.box('stone', { xMin: xe - 0.11, xMax: xe, yMin: y0, yMax: y1, zMin: z0, zMax: z1 }, 0x555a62);
+  mb.finish();
+  const muralTex = makeTexture(MURAL_CELL * 3, MURAL_CELL * 3, (pxx, ww, hh) => paintMural(pxx, ww, hh));
+  if (muralTex) { muralTex.wrapS = THREE.ClampToEdgeWrapping; muralTex.wrapT = THREE.ClampToEdgeWrapping; muralTex.generateMipmaps = false; muralTex.minFilter = THREE.NearestFilter; muralTex.magFilter = THREE.NearestFilter; disposables.push(muralTex); }
+  const muralMat = new THREE.MeshLambertMaterial({ map: muralTex || null, color: muralTex ? 0xffffff : 0x5a5e66 }); disposables.push(muralMat);
+  const muralMesh = new THREE.Mesh(new THREE.PlaneGeometry(3 * B.pitch, 3 * B.pitch).rotateY(-Math.PI / 2), muralMat);   // cara cap a l'oest (cap a la sala); u creix cap al sud = la dreta de qui el mira
+  muralMesh.position.set(xe - 0.042, MU.yc, MU.zc); muralMesh.name = 'MausoleumMural-face'; root.add(muralMesh);
 
   // ---- lloses ----
   const stoneMat = new THREE.MeshLambertMaterial({ color: 0x70747c, flatShading: true }); disposables.push(stoneMat);
